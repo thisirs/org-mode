@@ -10724,7 +10724,7 @@ visibility around point, thus ignoring
        0 (length s)
        '(face nil mouse-face nil keymap nil fontified nil) s)
       ;; Make a series of regular expressions to find a match
-      (setq words (org-split-string s "[ \n\r\t]+")
+      (setq words (org-split-string (regexp-quote s) "[ \n\r\t]+")
 
 	    re0 (concat "\\(<<" (regexp-quote s0) ">>\\)")
 	    re2 (concat markers "\\(" (mapconcat 'downcase words "[ \t]+")
