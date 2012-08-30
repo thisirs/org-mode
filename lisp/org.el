@@ -11238,7 +11238,8 @@ on the system \"/user@host:\"."
 					(buffer-base-buffer f))))
 	       (setq f (and f (expand-file-name f)))
 	       (if (eq org-refile-use-outline-path 'file)
-		   (push (list (file-name-nondirectory f) f nil nil) tgs))
+		   (push (list (file-name-nondirectory f) f nil nil) tgs)
+		 (push (list (org-protect-slash f) f nil nil) tgs))
 	       (save-excursion
 		 (save-restriction
 		   (widen)
