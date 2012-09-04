@@ -9957,10 +9957,16 @@ Use TAB to complete link prefixes, then RET for type-specific completion support
 		    (org-completing-read
 		     "Link: "
 		     (append
+<<<<<<< HEAD
 		      (mapcar (lambda (x) (list (concat x ":")))
 			      all-prefixes)
 		      (mapcar 'car org-stored-links)
 		      (mapcar 'cadr org-stored-links))
+=======
+		      (mapcar (lambda (x) (concat x ":"))
+			      all-prefixes)
+		      (mapcar 'car org-stored-links))
+>>>>>>> complete with helm is now possible
 		     nil nil nil
 		     'tmphist
 		     (caar org-stored-links))))
