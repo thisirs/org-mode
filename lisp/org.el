@@ -4115,23 +4115,16 @@ This is needed for font-lock setup.")
   :tag "Org Completion"
   :group 'org)
 
-(defcustom org-completion-use-ido nil
-  "Non-nil means use ido completion wherever possible.
-Note that `ido-mode' must be active for this variable to be relevant.
-If you decide to turn this variable on, you might well want to turn off
-`org-outline-path-complete-in-steps'.
-See also `org-completion-use-iswitchb'."
+(defcustom org-completion-handler nil
+  "Non-nil means use other completion handler wherever possible.
+If you decide to turn this variable on, you might well want to
+turn off `org-outline-path-complete-in-steps'."
   :group 'org-completion
-  :type 'boolean)
-
-(defcustom org-completion-use-iswitchb nil
-  "Non-nil means use iswitchb completion wherever possible.
-Note that `iswitchb-mode' must be active for this variable to be relevant.
-If you decide to turn this variable on, you might well want to turn off
-`org-outline-path-complete-in-steps'.
-Note that this variable has only an effect if `org-completion-use-ido' is nil."
-  :group 'org-completion
-  :type 'boolean)
+  :type '(choice
+	  (const :tag "Default" nil)
+	  (const :tag "Ido" ido)
+	  (const :tag "Iswitchb" iswitchb)
+	  (const :tag "Helm" helm)))
 
 (defcustom org-completion-fallback-command 'hippie-expand
   "The expansion command called by \\[pcomplete] in normal context.
@@ -9927,6 +9920,7 @@ Use TAB to complete link prefixes, then RET for type-specific completion support
       (unwind-protect
 	  (progn
 	    (setq link
+<<<<<<< HEAD
 		  (org-completing-read
 		   "Link: "
 		   (append
@@ -9936,6 +9930,19 @@ Use TAB to complete link prefixes, then RET for type-specific completion support
 		   nil nil nil
 		   'tmphist
 		   (caar org-stored-links)))
+=======
+		  (let (org-completion-handler)
+		    (org-completing-read
+		     "Link: "
+		     (append
+		      (mapcar (lambda (x) (list (concat x ":")))
+			      all-prefixes)
+		      (mapcar 'car org-stored-links)
+		      (mapcar 'cadr org-stored-links))
+		     nil nil nil
+		     'tmphist
+		     (caar org-stored-links))))
+>>>>>>> complete with helm is now possible
 	    (if (not (string-match "\\S-" link))
 		(user-error "No link selected"))
 	    (mapc (lambda(l)
@@ -10072,7 +10079,7 @@ See `read-file-name' for a description of parameters."
     (apply 'org-icompleting-read args)))
 
 (defun org-completing-read-no-i (&rest args)
-  (let (org-completion-use-ido org-completion-use-iswitchb)
+  (let (org-completion-handler)
     (apply 'org-completing-read args)))
 
 (defun org-iswitchb-completing-read (prompt choices &rest args)
@@ -10086,27 +10093,38 @@ from."
     (iswitchb-read-buffer prompt)))
 
 (defun org-icompleting-read (&rest args)
-  "Completing-read using `ido-mode' or `iswitchb' speedups if available."
+  "Completing-read using `ido-mode', `iswitchb' or `helm'
+speedups if available."
   (org-without-partial-completion
-   (if (and org-completion-use-ido
-	    (fboundp 'ido-completing-read)
-	    (boundp 'ido-mode) ido-mode
-	    (listp (second args)))
-       (let ((ido-enter-matching-directory nil))
-	 (apply 'ido-completing-read (concat (car args))
-		(if (consp (car (nth 1 args)))
-		    (mapcar 'car (nth 1 args))
-		  (nth 1 args))
-		(cddr args)))
-     (if (and org-completion-use-iswitchb
-	      (boundp 'iswitchb-mode) iswitchb-mode
-	      (listp (second args)))
-	 (apply 'org-iswitchb-completing-read (concat (car args))
-		(if (consp (car (nth 1 args)))
-		    (mapcar 'car (nth 1 args))
-		  (nth 1 args))
-		(cddr args))
-       (apply 'completing-read args)))))
+   (cond
+    ((and (eq org-completion-handler 'ido)
+	  (fboundp 'ido-completing-read)
+	  (boundp 'ido-mode) ido-mode
+	  (listp (second args)))
+     (let ((ido-enter-matching-directory nil))
+       (apply 'ido-completing-read (concat (car args))
+	      (if (consp (car (nth 1 args)))
+		  (mapcar 'car (nth 1 args))
+		(nth 1 args))
+	      (cddr args))))
+    ((and (eq org-completion-handler 'iswitchb)
+	  (boundp 'iswitchb-mode) iswitchb-mode
+	  (listp (second args)))
+     (apply 'org-iswitchb-completing-read (concat (car args))
+	    (if (consp (car (nth 1 args)))
+		(mapcar 'car (nth 1 args))
+	      (nth 1 args))
+	    (cddr args)))
+    ((and (eq org-completion-handler 'helm)
+	  (fboundp 'helm-comp-read)
+	  (listp (second args)))
+     (apply 'helm-completing-read-default-1 (concat (car args))
+	    (if (consp (car (nth 1 args)))
+		(mapcar 'substring-no-properties
+			(mapcar 'car (nth 1 args)))
+	      (nth 1 args))
+	    (append (cddr args) (list nil "Targets" "*Helm refile*"))))
+    (t (apply 'completing-read args)))))
 
 (defun org-extract-attributes (s)
   "Extract the attributes cookie from a string and set as text property."
@@ -11433,7 +11451,7 @@ RFLOC can be a refile location obtained in a different way.
 MSG is a string to replace \"Refile\" in the default prompt with
 another verb.  E.g. `org-copy' sets this parameter to \"Copy\".
 
-See also `org-refile-use-outline-path' and `org-completion-use-ido'.
+See also `org-refile-use-outline-path' and `org-completion-use-handler'.
 
 If you are using target caching (see `org-refile-use-cache'),
 you have to clear the target cache in order to find new targets.
@@ -11706,8 +11724,7 @@ this is used for the GOTO interface."
 (defun org-olpath-completing-read (prompt collection &rest args)
   "Read an outline path like a file name."
   (let ((thetable collection)
-	(org-completion-use-ido nil)	   ; does not work with ido.
-	(org-completion-use-iswitchb nil)) ; or iswitchb
+	org-completion-handler)	   ; not work with other completion handler
     (apply
      'org-icompleting-read prompt
      (lambda (string predicate &optional flag)
@@ -15042,7 +15059,7 @@ When INCREMENT is non-nil, set the property to the next allowed value."
 		      (car (nth (1- rpl) allowed))
 		    (org-completing-read "Effort: " allowed nil))))
 	       (t
-		(let (org-completion-use-ido org-completion-use-iswitchb)
+		(let (org-completion-handler)
 		  (org-completing-read
 		   (concat "Effort " (if (and cur (string-match "\\S-" cur))
 					 (concat "[" cur "]") "")
@@ -15641,7 +15658,7 @@ This is computed according to `org-property-set-functions-alist'."
 		  (funcall set-function prompt allowed nil
 			   (not (get-text-property 0 'org-unrestricted
 						   (caar allowed))))
-		(let (org-completion-use-ido org-completion-use-iswitchb)
+		(let (org-completion-handler)
 		  (funcall set-function prompt
 			   (mapcar 'list (org-property-values property))
 			   nil nil "" nil cur)))))
@@ -17677,15 +17694,12 @@ With one prefix argument, restrict available buffers to files.
 With two prefix arguments, restrict available buffers to agenda files.
 
 Defaults to `iswitchb' for buffer name completion.
-Set `org-completion-use-ido' to make it use ido instead."
+Set `org-completion-handler' to make it use ido or helm instead."
   (interactive "P")
   (let ((blist (cond ((equal arg '(4))  (org-buffer-list 'files))
                      ((equal arg '(16)) (org-buffer-list 'agenda))
                      (t                 (org-buffer-list))))
-	(org-completion-use-iswitchb org-completion-use-iswitchb)
-	(org-completion-use-ido org-completion-use-ido))
-    (unless (or org-completion-use-ido org-completion-use-iswitchb)
-      (setq org-completion-use-iswitchb t))
+	(org-completion-handler (or org-completion-handler 'iswitchb)))
     (org-pop-to-buffer-same-window
      (org-icompleting-read "Org buffer: "
 			   (mapcar 'list (mapcar 'buffer-name blist))
