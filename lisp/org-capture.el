@@ -1689,7 +1689,7 @@ The template may still contain \"%?\" for cursor positioning."
 				   (member char '("u" "U"))
 				   nil nil (list org-end-time-was-given)))
 	   (t
-	    (let (org-completion-use-ido)
+	    (let (org-completion-handler)
 	      (push (org-completing-read-no-i
 		     (concat (if prompt prompt "Enter string")
 			     (if default (concat " [" default "]"))
