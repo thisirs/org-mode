@@ -10116,7 +10116,7 @@ speedups if available."
 	      (nth 1 args))
 	    (cddr args)))
     ((and (eq org-completion-handler 'helm)
-	  (fboundp 'helm-comp-read)
+	  (require 'helm-mode nil t)
 	  (listp (second args)))
      (apply 'helm-completing-read-default-1 (concat (car args))
 	    (if (consp (car (nth 1 args)))
