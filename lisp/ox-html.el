@@ -786,6 +786,7 @@ evaluated for each row in order to construct the table row tags.
 During evaluation, these variables will be dynamically bound so that
 you can reuse them:
 
+       `row-number': row number (0 is the first row)
   `rowgroup-number': group number of current row
  `start-rowgroup-p': non-nil means the row starts a group
    `end-rowgroup-p': non-nil means the row ends a group
@@ -796,7 +797,9 @@ For example:
 
   (setq org-html-table-row-tags
         (cons '(cond (top-row-p \"<tr class=\\\"tr-top\\\">\")
-                     (bottom-row-p \"<tr class=\\\"tr-bottom\\\">\"))))
+                     (bottom-row-p \"<tr class=\\\"tr-bottom\\\">\")
+                     (t \"<tr>\"))
+              \"</tr>\"))
 
 will use the \"tr-top\" and \"tr-bottom\" classes for top and bottom row."
   :group 'org-export-html
@@ -2194,7 +2197,7 @@ holding contextual information."
 		  "div")
 		(format "outline-container-%s"
 			(or (org-element-property :CUSTOM_ID headline)
-			    section-number))
+			    (concat "sec-" section-number)))
 		(concat (format "outline-%d" level1) (and extra-class " ")
 			extra-class)
 		(format "\n<h%d id=\"%s\">%s%s</h%d>\n"
@@ -2964,6 +2967,7 @@ communication channel."
   ;; borders of the current row.
   (when (eq (org-element-property :type table-row) 'standard)
     (let* ((rowgroup-number (org-export-table-row-group table-row info))
+	   (row-number (org-export-table-row-number table-row info))
 	   (start-rowgroup-p
 	    (org-export-table-row-starts-rowgroup-p table-row info))
 	   (end-rowgroup-p

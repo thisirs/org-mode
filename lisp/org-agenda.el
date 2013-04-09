@@ -4331,7 +4331,8 @@ items if they have an hour specification like [h]h:mm."
 	(t n)))
 
 (defun org-agenda-span-to-ndays (span &optional start-day)
-  "Return ndays from SPAN, possibly starting at START-DAY."
+  "Return ndays from SPAN, possibly starting at START-DAY.
+START-DAY is an absolute time value."
   (cond ((numberp span) span)
 	((eq span 'day) 1)
 	((eq span 'week) 7)
@@ -7723,23 +7724,31 @@ Negative selection means regexp must not match for selection of an entry."
   (let* ((org-read-date-prefer-future
 	  (eval org-agenda-jump-prefer-future))
 	 (date (org-read-date))
+	 (day (time-to-days (org-time-string-to-time date)))
 	 (org-agenda-sticky-orig org-agenda-sticky)
 	 (org-agenda-buffer-tmp-name (buffer-name))
 	 (args (get-text-property (min (1- (point-max)) (point)) 'org-last-args))
 	 (0-arg (or current-prefix-arg (car args)))
 	 (2-arg (nth 2 args))
+	 (with-hour-p (nth 4 org-agenda-redo-command))
 	 (newcmd (list 'org-agenda-list 0-arg date
-		       (org-agenda-span-to-ndays 2-arg)))
+		       (org-agenda-span-to-ndays
+			2-arg (org-time-string-to-absolute date))
+		       with-hour-p))
 	 (newargs (cdr newcmd))
 	 (inhibit-read-only t)
 	 org-agenda-sticky)
     (if (not (org-agenda-check-type t 'agenda))
-	(error "Not available in non-agenda blocks")
+	(error "Not available in non-agenda views")
       (add-text-properties (point-min) (point-max)
 			   `(org-redo-cmd ,newcmd org-last-args ,newargs))
       (org-agenda-redo)
-    (setq org-agenda-sticky org-agenda-sticky-orig
-	  org-agenda-this-buffer-is-sticky org-agenda-sticky))))
+      (goto-char (point-min))
+      (while (not (or (= (or (get-text-property (point) 'day) 0) day)
+		      (save-excursion (move-beginning-of-line 2) (eobp))))
+	(move-beginning-of-line 2))
+      (setq org-agenda-sticky org-agenda-sticky-orig
+	    org-agenda-this-buffer-is-sticky org-agenda-sticky))))
 
 (defun org-agenda-goto-today ()
   "Go to today."

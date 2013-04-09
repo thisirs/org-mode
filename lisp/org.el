@@ -5138,10 +5138,9 @@ Support for group tags is controlled by the option
   "Return the contents of FILE, as a string."
   (if (or (not file)
 	  (not (file-readable-p file)))
-      (if (not noerror)
-	  (error "Cannot read file \"%s\"" file)
-	(message "Cannot read file \"%s\"" file)
-	(sit-for 3))
+      (if noerror
+	  (message "Cannot read file \"%s\"" file)
+	(error "Cannot read file \"%s\"" file))
     (with-temp-buffer
       (insert-file-contents file)
       (buffer-string))))
@@ -17469,7 +17468,9 @@ The format is determined by `org-time-clocksum-format',
 `org-time-clocksum-use-fractional' and
 `org-time-clocksum-fractional-format' and
 `org-time-clocksum-use-effort-durations'."
-  (let ((clocksum "") h d w mo y fmt n)
+  (let ((clocksum "")
+	(m (round m)) ; Don't allow fractions of minutes
+	h d w mo y fmt n)
     (setq h (if org-time-clocksum-use-effort-durations
 		(cdr (assoc "h" org-effort-durations)) 60)
 	  d (if org-time-clocksum-use-effort-durations
