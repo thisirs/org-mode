@@ -20333,11 +20333,23 @@ Also updates the keyword regular expressions."
   "Goto next table row or insert a newline.
 Calls `org-table-next-row' or `newline', depending on context.
 See the individual commands for more information."
-  (interactive)
+  (interactive "P")
   (let (org-ts-what)
     (cond
      ((or (bobp) (org-in-src-block-p))
-      (if indent (newline-and-indent) (newline)))
+      (if t;indent
+	  (let ((indent-line-function
+		 (or
+		  (if (org-in-src-block-p)
+		      (let ((info (org-babel-get-src-block-info 'light)))
+			(and info
+			     (nth 0 info)
+			     (with-temp-buffer
+			       (funcall (intern (concat (nth 0 info) "-mode")))
+			       indent-line-function))))
+		  indent-line-function)))
+	    (newline-and-indent))
+	(newline)))
      ((org-at-table-p)
       (org-table-justify-field-maybe)
       (call-interactively 'org-table-next-row))
