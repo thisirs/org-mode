@@ -10105,12 +10105,15 @@ speedups if available."
     ((and (eq org-completion-handler 'helm)
 	  (require 'helm-mode nil t)
 	  (listp (second args)))
-     (apply 'helm-completing-read-default (concat (car args))
-	    (if (consp (car (nth 1 args)))
-		(mapcar 'substring-no-properties
-			(mapcar 'car (nth 1 args)))
-	      (nth 1 args))
-	    (cddr args)))
+     (helm-comp-read (car args)
+		     (if (consp (car (nth 1 args)))
+			 (mapcar 'substring-no-properties
+				 (mapcar 'car (nth 1 args)))
+		       (nth 1 args))
+		     :test (nth 2 args)
+		     :must-match (nth 3 args)
+		     :initial-input (nth 4 args)
+		     :name "Refile completions"))
     (t (apply 'completing-read args)))))
 
 (defun org-extract-attributes (s)
