@@ -4124,7 +4124,7 @@ turn off `org-outline-path-complete-in-steps'."
 	  (const :tag "Default" nil)
 	  (const :tag "Ido" ido)
 	  (const :tag "Iswitchb" iswitchb)
-	  (const :tag "Helm" helm)))
+	  (function :tag "Other")))
 
 (defcustom org-completion-fallback-command 'hippie-expand
   "The expansion command called by \\[pcomplete] in normal context.
@@ -10080,7 +10080,7 @@ from."
     (iswitchb-read-buffer prompt)))
 
 (defun org-icompleting-read (&rest args)
-  "Completing-read using `ido-mode', `iswitchb' or `helm'
+  "Completing-read using `ido-mode', `iswitchb' or other
 speedups if available."
   (org-without-partial-completion
    (cond
@@ -10102,18 +10102,13 @@ speedups if available."
 		(mapcar 'car (nth 1 args))
 	      (nth 1 args))
 	    (cddr args)))
-    ((and (eq org-completion-handler 'helm)
-	  (require 'helm-mode nil t)
+    ((and (functionp org-completion-handler)
 	  (listp (second args)))
-     (helm-comp-read (car args)
-		     (if (consp (car (nth 1 args)))
-			 (mapcar 'substring-no-properties
-				 (mapcar 'car (nth 1 args)))
-		       (nth 1 args))
-		     :test (nth 2 args)
-		     :must-match (nth 3 args)
-		     :initial-input (nth 4 args)
-		     :name "Refile completions"))
+     (apply org-completion-handler (concat (car args))
+	    (if (consp (car (nth 1 args)))
+		(mapcar 'car (nth 1 args))
+	      (nth 1 args))
+	    (cddr args)))
     (t (apply 'completing-read args)))))
 
 (defun org-extract-attributes (s)
@@ -17682,8 +17677,9 @@ changes from another.  I believe the procedure must be like this:
 With one prefix argument, restrict available buffers to files.
 With two prefix arguments, restrict available buffers to agenda files.
 
-Defaults to `iswitchb' for buffer name completion.
-Set `org-completion-handler' to make it use ido or helm instead."
+Defaults to `iswitchb' for buffer name completion.  Set
+`org-completion-handler' to make it use ido or other completion
+function instead."
   (interactive "P")
   (let ((blist (cond ((equal arg '(4))  (org-buffer-list 'files))
                      ((equal arg '(16)) (org-buffer-list 'agenda))
