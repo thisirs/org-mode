@@ -1,6 +1,6 @@
 ;;; ob-core.el --- working with code blocks in org-mode
 
-;; Copyright (C) 2009-2012  Free Software Foundation, Inc.
+;; Copyright (C) 2009-2013  Free Software Foundation, Inc.
 
 ;; Authors: Eric Schulte
 ;;	Dan Davison
@@ -149,6 +149,12 @@ See also `org-babel-noweb-wrap-end'."
 (defcustom org-babel-noweb-wrap-end ">>"
   "String used to end a noweb reference in a code block.
 See also `org-babel-noweb-wrap-start'."
+  :group 'org-babel
+  :type 'string)
+
+(defcustom org-babel-inline-result-wrap "=%s="
+  "Format string used to wrap inline results.
+This string must include a \"%s\" which will be replaced by the results."
   :group 'org-babel
   :type 'string)
 
@@ -610,7 +616,8 @@ block."
 		  (if (member "none" result-params)
 		      (progn
 			(funcall cmd body params)
-			(message "result silenced"))
+			(message "result silenced")
+			(setq result nil))
 		    (setq result
 			  ((lambda (result)
 			     (if (and (eq (cdr (assoc :result-type params))
@@ -643,9 +650,9 @@ block."
 			  (setq result-params
 				(remove "file" result-params)))))
 		    (org-babel-insert-result
-		     result result-params info new-hash indent lang)
-		    (run-hooks 'org-babel-after-execute-hook)
-		    result))
+		     result result-params info new-hash indent lang))
+                  (run-hooks 'org-babel-after-execute-hook)
+		  result)
 	      (setq call-process-region
 		    'org-babel-call-process-region-original)))))))))
 
@@ -680,7 +687,7 @@ arguments and pop open the results in a preview buffer."
 	    (org-babel-expand-body:generic
 	     body params (and (fboundp assignments-cmd)
 			      (funcall assignments-cmd params))))))
-    (if (called-interactively-p 'any)
+    (if (org-called-interactively-p 'any)
 	(org-edit-src-code
 	 nil expanded
 	 (concat "*Org-Babel Preview " (buffer-name) "[ " lang " ]*"))
@@ -918,7 +925,7 @@ source code block, otherwise return nil.  With optional prefix
 argument RE-RUN the source-code block is evaluated even if
 results already exist."
   (interactive "P")
-  (let ((info (org-babel-get-src-block-info)))
+  (let ((info (org-babel-get-src-block-info 'light)))
     (when info
       (save-excursion
 	;; go to the results, if there aren't any then run the block
@@ -1322,8 +1329,8 @@ may be specified in the properties of the current outline entry."
               (buffer-string)))
 	  (org-babel-merge-params
 	   org-babel-default-header-args
-           (org-babel-params-from-properties lang)
 	   (if (boundp lang-headers) (eval lang-headers) nil)
+           (org-babel-params-from-properties lang)
 	   (org-babel-parse-header-arguments
             (org-no-properties (or (match-string 4) ""))))
 	  switches
@@ -1337,8 +1344,8 @@ may be specified in the properties of the current outline entry."
           (org-unescape-code-in-string (org-no-properties (match-string 5)))
           (org-babel-merge-params
            org-babel-default-inline-header-args
-           (org-babel-params-from-properties lang)
            (if (boundp lang-headers) (eval lang-headers) nil)
+           (org-babel-params-from-properties lang)
            (org-babel-parse-header-arguments
             (org-no-properties (or (match-string 4) "")))))))
 
@@ -2045,7 +2052,7 @@ code ---- the results are extracted in the syntax of the source
 		     (cons 'unordered
 			   (mapcar
 			    (lambda (el) (list nil (if (stringp el) el (format "%S" el))))
-			    (if (listp result) result (list result))))
+			    (if (listp result) result (split-string result "\n" t))))
 		     '(:splicep nil :istart "- " :iend "\n")))
 		   "\n"))
 		 ;; assume the result is a table if it's not a string
@@ -2168,8 +2175,9 @@ file's directory then expand relative links."
 	    (funcall chars-between end (save-excursion (goto-char end) (point-at-eol))))
 	(save-excursion
 	  (goto-char beg)
-	  (insert (format "=%s=" (prog1 (buffer-substring beg end)
-				   (delete-region beg end)))))
+	  (insert (format org-babel-inline-result-wrap
+			  (prog1 (buffer-substring beg end)
+			    (delete-region beg end)))))
       (let ((size (count-lines beg end)))
 	(save-excursion
 	  (cond ((= size 0))	      ; do nothing for an empty result
@@ -2364,7 +2372,7 @@ would set the value of argument \"a\" equal to \"9\".  Note that
 these arguments are not evaluated in the current source-code
 block but are passed literally to the \"example-block\"."
   (let* ((parent-buffer (or parent-buffer (current-buffer)))
-         (info (or info (org-babel-get-src-block-info)))
+         (info (or info (org-babel-get-src-block-info 'light)))
          (lang (nth 0 info))
          (body (nth 1 info))
 	 (ob-nww-start org-babel-noweb-wrap-start)

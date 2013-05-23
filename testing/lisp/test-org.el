@@ -124,9 +124,16 @@
 (ert-deftest test-org/fill-paragraph ()
   "Test `org-fill-paragraph' specifications."
   ;; At an Org table, align it.
-  (org-test-with-temp-text "|a|"
-    (org-fill-paragraph)
-    (should (equal (buffer-string) "| a |\n")))
+  (should
+   (equal "| a |\n"
+	  (org-test-with-temp-text "|a|"
+	    (org-fill-paragraph)
+	    (buffer-string))))
+  (should
+   (equal "#+name: table\n| a |\n"
+	  (org-test-with-temp-text "#+name: table\n| a |"
+	    (org-fill-paragraph)
+	    (buffer-string))))
   ;; At a paragraph, preserve line breaks.
   (org-test-with-temp-text "some \\\\\nlong\ntext"
     (let ((fill-column 20))
@@ -388,15 +395,25 @@
   (should
    (string=
     "àâçèéêîôùû"
-        (decode-coding-string (org-link-unescape "%E0%E2%E7%E8%E9%EA%EE%F4%F9%FB") 'latin-1))))
+        (decode-coding-string
+	 (org-link-unescape "%E0%E2%E7%E8%E9%EA%EE%F4%F9%FB") 'latin-1))))
 
 (ert-deftest test-org/org-link-escape-url-with-escaped-char ()
-  "Escape and unscape a URL that includes an escaped char.
+  "Escape and unescape a URL that includes an escaped char.
 http://article.gmane.org/gmane.emacs.orgmode/21459/"
   (should
    (string=
     "http://some.host.com/form?&id=blah%2Bblah25"
-    (org-link-unescape (org-link-escape "http://some.host.com/form?&id=blah%2Bblah25")))))
+    (org-link-unescape
+     (org-link-escape "http://some.host.com/form?&id=blah%2Bblah25")))))
+
+(ert-deftest test-org/org-link-escape-chars-browser ()
+  "Escape a URL to pass to `browse-url'."
+  (should
+   (string=
+    "http://some.host.com/search?q=%22Org%20mode%22"
+    (org-link-escape "http://some.host.com/search?q=\"Org mode\""
+		     org-link-escape-chars-browser))))
 
 
 

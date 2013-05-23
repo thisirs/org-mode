@@ -227,7 +227,9 @@ As the value of this option simply gets inserted into the HTML <head> header,
 you can \"misuse\" it to also add other text to the header."
   :group 'org-agenda-export
   :group 'org-export-html
-  :type 'string)
+  :type '(choice
+	  (const nil)
+	  (string)))
 
 (defcustom org-agenda-persistent-filter nil
   "When set, keep filters from one agenda view to the next."
@@ -1124,7 +1126,8 @@ option will be ignored."
 Should be 1 or 7.
 Obsolete, see `org-agenda-span'."
   :group 'org-agenda-daily/weekly
-  :type 'integer)
+  :type '(choice (const nil)
+		 (integer)))
 
 (make-obsolete-variable 'org-agenda-ndays 'org-agenda-span "24.1")
 
@@ -1729,9 +1732,7 @@ that passed since this item was scheduled first."
 These entries are added to the agenda when pressing \"[\"."
   :group 'org-agenda-line-format
   :version "24.1"
-  :type '(list
-	  (string :tag "Scheduled today     ")
-	  (string :tag "Scheduled previously")))
+  :type 'string)
 
 (defcustom org-agenda-deadline-leaders '("Deadline:  " "In %3d d.: " "%2d d. ago: ")
   "Text preceding deadline items in the agenda view.
@@ -1894,7 +1895,7 @@ returns a face, or nil if does not want to specify a face and let
 the normal rules apply."
   :group 'org-agenda-line-format
   :version "24.1"
-  :type 'function)
+  :type '(choice (const nil) (function)))
 
 (defcustom org-agenda-category-icon-alist nil
   "Alist of category icon to be displayed in agenda views.
@@ -1976,7 +1977,7 @@ Note that for the purpose of tag filtering, only the lower-case version of
 all tags will be considered, so that this function will only ever see
 the lower-case version of all tags."
   :group 'org-agenda
-  :type 'function)
+  :type '(choice (const nil) (function)))
 
 (defcustom org-agenda-bulk-custom-functions nil
   "Alist of characters and custom functions for bulk actions.
@@ -2737,12 +2738,12 @@ Pressing `<' twice means to restrict to the current subtree or region
 	(put 'org-agenda-files 'org-restrict (list bfn))
 	(cond
 	 ((eq restriction 'region)
-	  (setq org-agenda-restrict t)
+	  (setq org-agenda-restrict (current-buffer))
 	  (move-marker org-agenda-restrict-begin (region-beginning))
 	  (move-marker org-agenda-restrict-end (region-end)))
 	 ((eq restriction 'subtree)
 	  (save-excursion
-	    (setq org-agenda-restrict t)
+	    (setq org-agenda-restrict (current-buffer))
 	    (org-back-to-heading t)
 	    (move-marker org-agenda-restrict-begin (point))
 	    (move-marker org-agenda-restrict-end
@@ -3307,7 +3308,7 @@ If AGENDA-BUFFER-NAME, use this as the buffer name for the agenda to write."
   (interactive "FWrite agenda to file: \nP")
   (if (or (not (file-writable-p file))
 	  (and (file-exists-p file)
-	       (if (called-interactively-p 'any)
+	       (if (org-called-interactively-p 'any)
 		   (not (y-or-n-p (format "Overwrite existing file %s? " file))))))
       (user-error "Cannot write agenda to file %s" file))
   (org-let (if nosettings nil org-agenda-exporter-settings)
@@ -4557,7 +4558,7 @@ in `org-agenda-text-search-extra-files'."
 	      (let ((case-fold-search t))
 		(save-excursion
 		  (save-restriction
-		    (if org-agenda-restrict
+		    (if (eq buffer org-agenda-restrict)
 			(narrow-to-region org-agenda-restrict-begin
 					  org-agenda-restrict-end)
 		      (widen))
@@ -4813,7 +4814,7 @@ The prefix arg TODO-ONLY limits the search to TODO entries."
 		(error "Agenda file %s is not in `org-mode'" file))
 	      (save-excursion
 		(save-restriction
-		  (if org-agenda-restrict
+		  (if (eq buffer org-agenda-restrict)
 		      (narrow-to-region org-agenda-restrict-begin
 					org-agenda-restrict-end)
 		    (widen))
@@ -5281,7 +5282,7 @@ the documentation of `org-diary'."
 	(let ((case-fold-search nil))
 	  (save-excursion
 	    (save-restriction
-	      (if org-agenda-restrict
+	      (if (eq buffer org-agenda-restrict)
 		  (narrow-to-region org-agenda-restrict-begin
 				    org-agenda-restrict-end)
 		(widen))
@@ -6984,14 +6985,14 @@ The optional argument TYPE tells the agenda type."
 
 (defsubst org-cmp-ts (a b &optional type)
   "Compare the timestamps values of entries A and B.
-When TYPE is \"scheduled\", \"deadline\", \"timestamp\"
-or \"timestamp_ia\", compare within each of these type.
-When TYPE is the empty string, compare all timestamps
-without respect of their type."
+When TYPE is \"scheduled\", \"deadline\", \"timestamp\" or
+\"timestamp_ia\", compare within each of these type.  When TYPE
+is the empty string, compare all timestamps without respect of
+their type."
   (let* ((def (if org-sort-agenda-notime-is-late 9901 -1))
-	 (ta (or (and (string-match type (get-text-property 1 'type a))
+	 (ta (or (and (string-match type (or (get-text-property 1 'type a) ""))
 		      (get-text-property 1 'ts-date a)) def))
-	 (tb (or (and (string-match type (get-text-property 1 'type b))
+	 (tb (or (and (string-match type (or (get-text-property 1 'type b) ""))
 		      (get-text-property 1 'ts-date b)) def)))
     (cond ((< ta tb) -1)
 	  ((< tb ta) +1))))
@@ -7085,7 +7086,7 @@ in the file.  Otherwise, restriction will be to the current subtree."
 	      (t 'file)))
   (if (eq type 'subtree)
       (progn
-	(setq org-agenda-restrict t)
+	(setq org-agenda-restrict (current-buffer))
 	(setq org-agenda-overriding-restriction 'subtree)
 	(put 'org-agenda-files 'org-restrict
 	     (list (buffer-file-name (buffer-base-buffer))))

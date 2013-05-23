@@ -80,23 +80,30 @@
   :group 'org-export-koma-letter
   :type 'string)
 
-(defcustom org-koma-letter-closing "See you soon,"
-  "Koma-Letter's closing, as a string."
-  :group 'org-export-koma-letter
-  :type 'string)
 
-(defcustom org-koma-letter-from-address "Somewhere \\ Over the rainbow."
+(defcustom org-koma-letter-from-address nil
   "Sender's address, as a string."
   :group 'org-export-koma-letter
   :type 'string)
 
-(defcustom org-koma-letter-opening "Dear Sir,"
+(defcustom org-koma-letter-phone-number nil
+  "Sender's phone number, as a string."
+  :group 'org-export-koma-letter
+  :type 'string)
+
+
+(defcustom org-koma-letter-place nil
+  "Place from which the letter is sent."
+  :group 'org-export-koma-letter
+  :type 'string)
+
+(defcustom org-koma-letter-opening nil
   "Letter's opening, as a string."
   :group 'org-export-koma-letter
   :type 'string)
 
-(defcustom org-koma-letter-phone-number "00-00-00-00"
-  "Sender's phone number, as a string."
+(defcustom org-koma-letter-closing nil
+  "Koma-Letter's closing, as a string."
   :group 'org-export-koma-letter
   :type 'string)
 
@@ -105,28 +112,73 @@
   :group 'org-export-koma-letter
   :type 'string)
 
+(defcustom org-koma-letter-use-subject "untitled"
+  "Use the title as the letter's subject."
+  :group 'org-export-koma-letter
+  :type 'string)
+
+(defcustom org-koma-letter-use-backaddress t
+  "Print return address in small line above to address."
+  :group 'org-export-koma-letter
+  :type 'boolean)
+
+(defcustom org-koma-letter-use-foldmarks "true"
+  "Configure appearence of fold marks.
+
+Accepts any valid value for the KOMA-Script `foldmarks' option.
+
+Use `foldmarks:true' to activate default fold marks or
+`foldmarks:nil' to deactivate fold marks."
+  :group 'org-export-koma-letter
+  :type 'string)
+
+(defcustom org-koma-letter-use-phone t
+  "Print sender's phone number."
+  :group 'org-export-koma-letter
+  :type 'boolean)
+
+(defcustom org-koma-letter-use-email t
+  "Print sender's email address."
+  :group 'org-export-koma-letter
+  :type 'boolean)
+
+(defcustom org-koma-letter-use-place t
+  "Print the letter's place next to the date."
+  :group 'org-export-koma-letter
+  :type 'boolean)
+
 
 ;;; Define Back-End
 
 (org-export-define-derived-backend 'koma-letter 'latex
   :options-alist
-  '((:closing "CLOSING" nil org-koma-letter-closing)
+  '((:lco "LCO" nil org-koma-letter-class-option-file)
+    (:sender "AUTHOR" nil user-full-name t)
     (:from-address "FROM_ADDRESS" nil org-koma-letter-from-address newline)
-    (:lco "LCO" nil org-koma-letter-class-option-file)
-    (:opening "OPENING" nil org-koma-letter-opening)
     (:phone-number "PHONE_NUMBER" nil org-koma-letter-phone-number)
-    (:signature "SIGNATURE" nil nil newline)
-    (:to-address "TO_ADDRESS" nil nil newline))
+    (:email "EMAIL" nil user-mail-address t)
+    (:to-address "TO_ADDRESS" nil nil newline)
+    (:place "PLACE" nil org-koma-letter-place)
+    (:opening "OPENING" nil org-koma-letter-opening)
+    (:closing "CLOSING" nil org-koma-letter-closing)
+    (:signature "SIGNATURE" nil org-koma-letter-signature newline)
+
+    (:with-backaddress nil "backaddress" org-koma-letter-use-backaddress)
+    (:with-foldmarks nil "foldmarks" org-koma-letter-use-foldmarks)
+    (:with-phone nil "phone" org-koma-letter-use-phone)
+    (:with-email nil "email" org-koma-letter-use-email)
+    (:with-place nil "place" org-koma-letter-use-place)
+    (:with-subject nil "subject" org-koma-letter-use-subject))
   :translate-alist '((export-block . org-koma-letter-export-block)
 		     (export-snippet . org-koma-letter-export-snippet)
 		     (keyword . org-koma-letter-keyword)
 		     (template . org-koma-letter-template))
   :menu-entry
   '(?k "Export with KOMA Scrlttr2"
-       ((?K "As LaTeX buffer" org-koma-letter-export-as-latex)
-	(?k "As LaTeX file" org-koma-letter-export-to-latex)
+       ((?L "As LaTeX buffer" org-koma-letter-export-as-latex)
+	(?l "As LaTeX file" org-koma-letter-export-to-latex)
 	(?p "As PDF file" org-koma-letter-export-to-pdf)
-	(?O "As PDF file and open"
+	(?o "As PDF file and open"
 	    (lambda (a s v b)
 	      (if a (org-koma-letter-export-to-pdf t s v b)
 		(org-open-file (org-koma-letter-export-to-pdf nil s v b))))))))
@@ -197,22 +249,54 @@ holding export options."
 	     (concat (plist-get info :latex-header)
 		     (plist-get info :latex-header-extra))))
            info)))))
-   ;; Define "From" data.
-   (format "\\setkomavar{fromname}{%s}\n"
-           (org-export-data (plist-get info :author) info))
-   (format "\\setkomavar{fromaddress}{%s}\n" (plist-get info :from-address))
-   (format "\\setkomavar{signature}{%s}\n" (plist-get info :signature))
-   (format "\\setkomavar{fromemail}{%s}\n"
-           (org-export-data (plist-get info :email) info))
-   (format "\\setkomavar{fromphone}{%s}\n" (plist-get info :phone-number))
+   (let ((lco (plist-get info :lco))
+	 (sender (plist-get info :sender))
+	 (from-address (plist-get info :from-address))
+	 (phone-number (plist-get info :phone-number))
+	 (email (plist-get info :email))
+	 (signature (plist-get info :signature)))
+     (concat
+      ;; Letter Class Option File
+      (when lco 
+	(let ((lco-files (split-string lco " "))
+	      (lco-def ""))
+	  (dolist (lco-file lco-files lco-def)
+	    (setq lco-def (format "%s\\LoadLetterOption{%s}\n" lco-def lco-file)))
+	  lco-def))
+      ;; Define "From" data.
+      (when sender (format "\\setkomavar{fromname}{%s}\n"
+			   (org-export-data sender info)))
+      (when from-address (format "\\setkomavar{fromaddress}{%s}\n" from-address))
+      (when phone-number (format "\\setkomavar{fromphone}{%s}\n" phone-number))
+      (when email (format "\\setkomavar{fromemail}{%s}\n" email))
+      (when signature (format "\\setkomavar{signature}{%s}\n" signature))))
    ;; Date.
    (format "\\date{%s}\n" (org-export-data (org-export-get-date info) info))
-   ;; Letter Class Option File
-   (format "\\LoadLetterOption{%s}\n" (plist-get info :lco))
-   ;; Letter start.
+   ;; Place
+   (let ((with-place (plist-get info :with-place))
+	 (place (plist-get info :place)))
+     (when (or place (not with-place))
+       (format "\\setkomavar{place}{%s}\n" (if with-place place ""))))
+   ;; KOMA options
+   (let ((with-backaddress (plist-get info :with-backaddress))
+	 (with-foldmarks (plist-get info :with-foldmarks))
+	 (with-phone (plist-get info :with-phone))
+	 (with-email (plist-get info :with-email)))
+     (concat
+      (format "\\KOMAoption{backaddress}{%s}\n" (if with-backaddress "true" "false"))
+      (format "\\KOMAoption{foldmarks}{%s}\n" (if with-foldmarks with-foldmarks "false"))
+      (format "\\KOMAoption{fromphone}{%s}\n" (if with-phone "true" "false"))
+      (format "\\KOMAoption{fromemail}{%s}\n" (if with-email "true" "false"))))
+   ;; Document start
    "\\begin{document}\n\n"
-   (format "\\setkomavar{subject}{%s}\n\n"
-           (org-export-data (plist-get info :title) info))
+   ;; Subject
+   (let ((with-subject (plist-get info :with-subject)))
+     (when with-subject
+       (concat
+	(format "\\KOMAoption{subject}{%s}\n" with-subject)
+	(format "\\setkomavar{subject}{%s}\n\n"
+		(org-export-data (plist-get info :title) info)))))
+   ;; Letter start
    (format "\\begin{letter}{%%\n%s}\n\n"
 	   (or (plist-get info :to-address) "no address given"))
    ;; Opening.

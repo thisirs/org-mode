@@ -268,6 +268,60 @@ Paragraph"
 	    (progn (forward-line 2)
 		   (plist-get (org-export-get-environment nil t) :title))))))
 
+(ert-deftest test-org-export/set-title ()
+  "Test title setting."
+  ;; If no title if specified, use file name.
+  (should
+   (apply
+    'equal
+    (org-test-with-temp-text-in-file "Test"
+      (org-mode)
+      (let (org-export-registered-backends)
+	(org-export-define-backend 'test
+	  '((template . (lambda (text info)
+			  (org-element-interpret-data
+			   (plist-get info :title) info)))))
+	(list (org-export-as 'test)
+	      (file-name-nondirectory
+	       (file-name-sans-extension (buffer-file-name))))))))
+  ;; If no title is specified, and no file is associated to the
+  ;; buffer, use buffer's name.
+  (should
+   (apply
+    'equal
+    (org-test-with-temp-text "Test"
+      (org-mode)
+      (let (org-export-registered-backends)
+	(org-export-define-backend 'test
+	  '((template . (lambda (text info)
+			  (org-element-interpret-data
+			   (plist-get info :title) info)))))
+	(list (org-export-as 'test) (buffer-name))))))
+  ;; If a title is specified, use it.
+  (should
+   (equal
+    "Title"
+    (org-test-with-temp-text-in-file "#+TITLE: Title\nTest"
+      (org-mode)
+      (let (org-export-registered-backends)
+	(org-export-define-backend 'test
+	  '((template . (lambda (text info)
+			  (org-element-interpret-data
+			   (plist-get info :title) info)))))
+	(org-export-as 'test)))))
+  ;; If an empty title is specified, do not set it.
+  (should
+   (equal
+    ""
+    (org-test-with-temp-text-in-file "#+TITLE:\nTest"
+      (org-mode)
+      (let (org-export-registered-backends)
+	(org-export-define-backend 'test
+	  '((template . (lambda (text info)
+			  (org-element-interpret-data
+			   (plist-get info :title) info)))))
+	(org-export-as 'test))))))
+
 (ert-deftest test-org-export/handle-options ()
   "Test if export options have an impact on output."
   ;; Test exclude tags for headlines and inlinetasks.
@@ -361,6 +415,21 @@ Paragraph"
 	(should
 	 (equal (org-export-as 'test nil nil nil '(:with-drawers (not "BAR")))
 		":FOO:\nkeep\n:END:\n")))))
+  ;; Footnotes.
+  (should
+   (equal "Footnote?"
+	  (let ((org-footnote-section nil))
+	    (org-test-with-temp-text "Footnote?[fn:1]\n\n[fn:1] Def"
+	      (org-test-with-backend test
+		(org-trim
+		 (org-export-as 'test nil nil nil '(:with-footnotes nil))))))))
+  (should
+   (equal "Footnote?[fn:1]\n\n[fn:1] Def"
+	  (let ((org-footnote-section nil))
+	    (org-test-with-temp-text "Footnote?[fn:1]\n\n[fn:1] Def"
+	      (org-test-with-backend test
+		(org-trim
+		 (org-export-as 'test nil nil nil '(:with-footnotes t))))))))
   ;; Inlinetasks.
   (when (featurep 'org-inlinetask)
     (should
@@ -1452,7 +1521,14 @@ Paragraph[1][2][fn:lbl3:C<<target>>][[test]][[target]]\n[1] A\n\n[2] <<test>>B"
    (org-test-with-parsed-data "* Head [100%]\n[[Head]]"
      (org-element-map tree 'link
        (lambda (link) (org-export-resolve-fuzzy-link link info))
-       info t))))
+       info t)))
+  ;; Headline match is position dependent.
+  (should-not
+   (apply
+    'eq
+    (org-test-with-parsed-data "* H1\n[[*H1]]\n* H1\n[[*H1]]"
+      (org-element-map tree 'link
+	(lambda (link) (org-export-resolve-fuzzy-link link info)) info)))))
 
 (ert-deftest test-org-export/resolve-coderef ()
   "Test `org-export-resolve-coderef' specifications."
@@ -1635,7 +1711,27 @@ Another text. (ref:text)
 	    (info `(:parse-tree ,tree)))
        (org-export-resolve-radio-link
 	(org-element-map tree 'link 'identity info t)
-	info)))))
+	info))))
+  ;; Multiple radio targets.
+  (should
+   (equal '("radio1" "radio2")
+	  (org-test-with-temp-text "<<<radio1>>> <<<radio2>>> radio1 radio2"
+	    (org-update-radio-target-regexp)
+	    (let* ((tree (org-element-parse-buffer))
+		   (info `(:parse-tree ,tree)))
+	      (org-element-map tree 'link
+		(lambda (link)
+		  (org-element-property
+		   :value (org-export-resolve-radio-link link info)))
+		info)))))
+  ;; Radio target is whitespace insensitive.
+  (should
+   (org-test-with-temp-text "<<<a radio>>> a\n  radio"
+     (org-update-radio-target-regexp)
+     (let* ((tree (org-element-parse-buffer))
+	    (info `(:parse-tree ,tree)))
+       (org-element-map tree 'link
+	 (lambda (link) (org-export-resolve-radio-link link info)) info t)))))
 
 
 
@@ -1919,36 +2015,41 @@ Another text. (ref:text)
 (ert-deftest test-org-export/table-row-group ()
   "Test `org-export-table-row-group' specifications."
   ;; 1. A rule creates a new group.
-  (org-test-with-parsed-data "
+  (should
+   (equal '(1 rule 2)
+	  (org-test-with-parsed-data "
 | a | b |
 |---+---|
 | 1 | 2 |"
-    (should
-     (equal
-      '(1 nil 2)
-      (mapcar (lambda (row) (org-export-table-row-group row info))
-	      (org-element-map tree 'table-row 'identity)))))
+	    (org-element-map tree 'table-row
+	      (lambda (row)
+		(if (eq (org-element-property :type row) 'rule) 'rule
+		  (org-export-table-row-group row info)))))))
   ;; 2. Special rows are ignored in count.
-  (org-test-with-parsed-data "
+  (should
+   (equal
+    '(rule 1)
+    (org-test-with-parsed-data "
 | / | < | > |
 |---|---+---|
 |   | 1 | 2 |"
-    (should
-     (equal
-      '(nil nil 1)
-      (mapcar (lambda (row) (org-export-table-row-group row info))
-	      (org-element-map tree 'table-row 'identity)))))
+      (org-element-map tree 'table-row
+	(lambda (row)
+	  (if (eq (org-element-property :type row) 'rule) 'rule
+	    (org-export-table-row-group row info)))
+	info))))
   ;; 3. Double rules also are ignored in count.
-  (org-test-with-parsed-data "
+  (should
+   (equal '(1 rule rule 2)
+	  (org-test-with-parsed-data "
 | a | b |
 |---+---|
 |---+---|
 | 1 | 2 |"
-    (should
-     (equal
-      '(1 nil nil 2)
-      (mapcar (lambda (row) (org-export-table-row-group row info))
-	      (org-element-map tree 'table-row 'identity))))))
+	    (org-element-map tree 'table-row
+	      (lambda (row)
+		(if (eq (org-element-property :type row) 'rule) 'rule
+		  (org-export-table-row-group row info))))))))
 
 (ert-deftest test-org-export/table-row-number ()
   "Test `org-export-table-row-number' specifications."

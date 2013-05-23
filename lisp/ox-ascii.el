@@ -68,7 +68,6 @@
     (export-block . org-ascii-export-block)
     (export-snippet . org-ascii-export-snippet)
     (fixed-width . org-ascii-fixed-width)
-    (footnote-definition . org-ascii-footnote-definition)
     (footnote-reference . org-ascii-footnote-reference)
     (headline . org-ascii-headline)
     (horizontal-rule . org-ascii-horizontal-rule)
@@ -1147,7 +1146,7 @@ CONTENTS is nil.  INFO is a plist holding contextual information."
 ;;;; Footnote Definition
 
 ;; Footnote Definitions are ignored.  They are compiled at the end of
-;; the document, by `org-ascii-template'.
+;; the document, by `org-ascii-inner-template'.
 
 
 ;;;; Footnote Reference
@@ -1673,25 +1672,35 @@ column.
 
 When `org-ascii-table-widen-columns' is non-nil, width cookies
 are ignored."
-  (or (and (not org-ascii-table-widen-columns)
-	   (org-export-table-cell-width table-cell info))
-      (let* ((max-width 0)
-	     (table (org-export-get-parent-table table-cell))
-	     (specialp (org-export-table-has-special-column-p table))
-	     (col (cdr (org-export-table-cell-address table-cell info))))
-	(org-element-map table 'table-row
-	  (lambda (row)
-	    (setq max-width
-		  (max (length
-			(org-export-data
-			 (org-element-contents
-			  (elt (if specialp (cdr (org-element-contents row))
-				 (org-element-contents row))
-			       col))
-			 info))
-		       max-width)))
-	  info)
-	max-width)))
+  (let* ((row (org-export-get-parent table-cell))
+	 (table (org-export-get-parent row))
+	 (col (let ((cells (org-element-contents row)))
+		(- (length cells) (length (memq table-cell cells)))))
+	 (cache
+	  (or (plist-get info :ascii-table-cell-width-cache)
+	      (plist-get (setq info
+			       (plist-put info :ascii-table-cell-width-cache
+					  (make-hash-table :test 'equal)))
+			 :ascii-table-cell-width-cache)))
+	 (key (cons table col)))
+    (or (gethash key cache)
+	(puthash
+	 key
+	 (or (and (not org-ascii-table-widen-columns)
+		  (org-export-table-cell-width table-cell info))
+	     (let* ((max-width 0))
+	       (org-element-map table 'table-row
+		 (lambda (row)
+		   (setq max-width
+			 (max (length
+			       (org-export-data
+				(org-element-contents
+				 (elt (org-element-contents row) col))
+				info))
+			      max-width)))
+		 info)
+	       max-width))
+	 cache))))
 
 (defun org-ascii-table-cell (table-cell contents info)
   "Transcode a TABLE-CELL object from Org to ASCII.

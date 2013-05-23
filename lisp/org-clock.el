@@ -159,7 +159,7 @@ state to switch it to."
 This is the string shown in the mode line when a clock is running.
 The function is called with point at the beginning of the headline."
   :group 'org-clock
-  :type 'function)
+  :type '(choice (const nil) (function)))
 
 (defcustom org-clock-string-limit 0
   "Maximum length of clock strings in the mode line.  0 means no limit."
@@ -263,6 +263,7 @@ The function or program will be called with the notification
 string as argument."
   :group 'org-clock
   :type '(choice
+	  (const nil)
 	  (string :tag "Program")
 	  (function :tag "Function")))
 
@@ -665,9 +666,12 @@ previous clocking intervals."
   "Add to or set the effort estimate of the item currently being clocked.
 VALUE can be a number of minutes, or a string with format hh:mm or mm.
 When the string starts with a + or a - sign, the current value of the effort
-property will be changed by that amount.
-This will update the \"Effort\" property of currently clocked item, and
-the mode line."
+property will be changed by that amount.  If the effort value is expressed
+as an `org-effort-durations' (e.g. \"3h\"), the modificied value will be
+converted to a hh:mm duration.
+
+This command will update the \"Effort\" property of the currently
+clocked item, and the value displayed in the mode line."
   (interactive)
   (if (org-clock-is-active)
       (let ((current org-clock-effort) sign)
@@ -1199,13 +1203,8 @@ make this the default behavior.)"
 	    (goto-char target-pos)
 	    (org-back-to-heading t)
 	    (or interrupting (move-marker org-clock-interrupted-task nil))
-	    (save-excursion
-	      (forward-char) ;; make sure the marker is not at the
-	      ;; beginning of the heading, since the
-	      ;; user is liking to insert stuff here
-	      ;; manually
-	      (run-hooks 'org-clock-in-prepare-hook)
-	      (org-clock-history-push))
+	    (run-hooks 'org-clock-in-prepare-hook)
+	    (org-clock-history-push)
 	    (setq org-clock-current-task (nth 4 (org-heading-components)))
 	    (cond ((functionp org-clock-in-switch-to-state)
 		   (looking-at org-complex-heading-regexp)

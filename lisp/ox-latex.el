@@ -420,7 +420,7 @@ environment."
   :type 'string)
 
 (defcustom org-latex-inline-image-rules
-  '(("file" . "\\.\\(pdf\\|jpeg\\|jpg\\|png\\|ps\\|eps\\|tikz\\)\\'"))
+  '(("file" . "\\.\\(pdf\\|jpeg\\|jpg\\|png\\|ps\\|eps\\|tikz\\|pgf\\)\\'"))
   "Rules characterizing image files that can be inlined into LaTeX.
 
 A rule consists in an association whose key is the type of link
@@ -1435,7 +1435,8 @@ holding contextual information."
 	       (format "\n\\\\end{%s}" (if numberedp 'enumerate 'itemize))
 	       low-level-body)))
 	;; This is a standard headline.  Export it as a section.  Add
-	;; an alternative heading when possible.
+	;; an alternative heading when possible, and when this is not
+	;; identical to the usual heading.
 	(let ((opt-title
 	       (funcall org-latex-format-headline-function
 			todo todo-type priority
@@ -1443,6 +1444,7 @@ holding contextual information."
 			 (org-export-get-alt-title headline info) info)
 			(and (eq (plist-get info :with-tags) t) tags))))
 	  (if (and numberedp opt-title
+		   (not (equal opt-title full-text))
 		   (string-match "\\`\\\\\\(.*?[^*]\\){" section-fmt))
 	      (format (replace-match "\\1[%s]" nil nil section-fmt 1)
 		      ;; Replace square brackets with parenthesis
@@ -1737,7 +1739,7 @@ used as a communication channel."
 		    (if (not (string-match "\\`\\[\\(.*\\)\\]\\'" opt)) opt
 		      (match-string 1 opt))))
 	 image-code)
-    (if (equal filetype "tikz")
+    (if (member filetype '("tikz" "pgf"))
 	;; For tikz images:
 	;; - use \input to read in image file.
 	;; - if options are present, wrap in a tikzpicture environment.
@@ -1915,11 +1917,15 @@ TEXT is the string to transcode.  INFO is a plist holding
 contextual information."
   (let ((specialp (plist-get info :with-special-strings))
 	(output text))
-    ;; Protect %, #, &, $, ^, _,  { and }.
-    (while (string-match "\\([^\\]\\|^\\)\\([%$#&{}^_]\\)" output)
+    ;; Protect %, #, &, $, _, { and }.
+    (while (string-match "\\([^\\]\\|^\\)\\([%$#&{}_]\\)" output)
       (setq output
 	    (replace-match
 	     (format "\\%s" (match-string 2 output)) nil t output 2)))
+    ;; Protect ^.
+    (setq output
+	  (replace-regexp-in-string
+	   "\\([^\\]\\|^\\)\\(\\^\\)" "\\\\^{}" output nil nil 2))
     ;; Protect \.  If special strings are used, be careful not to
     ;; protect "\" in "\-" constructs.
     (let ((symbols (if specialp "-%$#&{}^_\\" "%$#&{}^_\\")))

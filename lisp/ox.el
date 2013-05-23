@@ -117,7 +117,7 @@
     (:section-numbers nil "num" org-export-with-section-numbers)
     (:select-tags "SELECT_TAGS" nil org-export-select-tags split)
     (:time-stamp-file nil "timestamp" org-export-time-stamp-file)
-    (:title "TITLE" nil nil space)
+    (:title "TITLE" nil org-export--default-title space)
     (:with-archived-trees nil "arch" org-export-with-archived-trees)
     (:with-author nil "author" org-export-with-author)
     (:with-clocks nil "c" org-export-with-clocks)
@@ -333,7 +333,7 @@ e.g. \"arch:nil\"."
   :group 'org-export-general
   :type '(choice
 	  (const :tag "Not at all" nil)
-	  (const :tag "Headline only" 'headline)
+	  (const :tag "Headline only" headline)
 	  (const :tag "Entirely" t)))
 
 (defcustom org-export-with-author t
@@ -797,8 +797,8 @@ HTML code while every other back-end will ignore it."
 This variable can be either set to `buffer' or `subtree'."
   :group 'org-export-general
   :type '(choice
-	  (const :tag "Export current buffer" 'buffer)
-	  (const :tag "Export current subtree" 'subtree)))
+	  (const :tag "Export current buffer" buffer)
+	  (const :tag "Export current subtree" subtree)))
 
 (defcustom org-export-show-temporary-export-buffer t
   "Non-nil means show buffer after exporting to temp buffer.
@@ -1707,47 +1707,47 @@ Assume buffer is in Org mode.  Narrowing, if any, is ignored."
 
 (defun org-export--get-buffer-attributes ()
   "Return properties related to buffer attributes, as a plist."
-  (let ((visited-file (buffer-file-name (buffer-base-buffer))))
-    (list
-     ;; Store full path of input file name, or nil.  For internal use.
-     :input-file visited-file
-     :title (or (and visited-file
-		     (file-name-sans-extension
-		      (file-name-nondirectory visited-file)))
-		(buffer-name (buffer-base-buffer))))))
+  ;; Store full path of input file name, or nil.  For internal use.
+  (list :input-file (buffer-file-name (buffer-base-buffer))))
+
+(defvar org-export--default-title nil)	; Dynamically scoped.
+(defun org-export-store-default-title ()
+  "Return default title for current document, as a string.
+Title is extracted from associated file name, if any, or buffer's
+name."
+  (setq org-export--default-title
+	(or (let ((visited-file (buffer-file-name (buffer-base-buffer))))
+	      (and visited-file
+		   (file-name-sans-extension
+		    (file-name-nondirectory visited-file))))
+	    (buffer-name (buffer-base-buffer)))))
 
 (defun org-export--get-global-options (&optional backend)
   "Return global export options as a plist.
-
 Optional argument BACKEND, if non-nil, is a symbol specifying
 which back-end specific export options should also be read in the
 process."
-  (let ((all
-	 ;; Priority is given to back-end specific options.
-	 (append (and backend (org-export-backend-options backend))
-		 org-export-options-alist))
-	plist)
-    (mapc
-     (lambda (cell)
-       (let ((prop (car cell)))
-	 (unless (plist-member plist prop)
-	   (setq plist
-		 (plist-put
-		  plist
-		  prop
-		  ;; Eval default value provided.  If keyword is a member
-		  ;; of `org-element-document-properties', parse it as
-		  ;; a secondary string before storing it.
-		  (let ((value (eval (nth 3 cell))))
-		    (if (not (stringp value)) value
-		      (let ((keyword (nth 1 cell)))
-			(if (not (member keyword org-element-document-properties))
-			    value
-			  (org-element-parse-secondary-string
-			   value (org-element-restriction 'keyword)))))))))))
-     all)
-    ;; Return value.
-    plist))
+  (let (plist
+	;; Priority is given to back-end specific options.
+	(all (append (and backend (org-export-backend-options backend))
+		     org-export-options-alist)))
+    (dolist (cell all plist)
+      (let ((prop (car cell)))
+	(unless (plist-member plist prop)
+	  (setq plist
+		(plist-put
+		 plist
+		 prop
+		 ;; Eval default value provided.  If keyword is
+		 ;; a member of `org-element-document-properties',
+		 ;; parse it as a secondary string before storing it.
+		 (let ((value (eval (nth 3 cell))))
+		   (if (not (stringp value)) value
+		     (let ((keyword (nth 1 cell)))
+		       (if (member keyword org-element-document-properties)
+			   (org-element-parse-secondary-string
+			    value (org-element-restriction 'keyword))
+			 value)))))))))))
 
 (defun org-export--list-bound-variables ()
   "Return variables bound from BIND keywords in current buffer.
@@ -1994,6 +1994,8 @@ a tree with a select tag."
 		  (if (eq (car with-drawers-p) 'not)
 		      (member-ignore-case name (cdr with-drawers-p))
 		    (not (member-ignore-case name with-drawers-p))))))))
+    ((footnote-definition footnote-reference)
+     (not (plist-get options :with-footnotes)))
     ((headline inlinetask)
      (let ((with-tasks (plist-get options :with-tasks))
 	   (todo (org-element-property :todo-keyword blob))
@@ -2230,9 +2232,6 @@ according to export options INFO, stored as a plist."
      (plist-get info :with-emphasize))
     ;; ... fixed-width areas.
     (fixed-width (plist-get info :with-fixed-width))
-    ;; ... footnotes...
-    ((footnote-definition footnote-reference)
-     (plist-get info :with-footnotes))
     ;; ... LaTeX environments and fragments...
     ((latex-environment latex-fragment)
      (let ((with-latex-p (plist-get info :with-latex)))
@@ -2247,13 +2246,19 @@ according to export options INFO, stored as a plist."
     (table (plist-get info :with-tables))
     (otherwise t)))
 
-(defun org-export-expand (blob contents)
+(defun org-export-expand (blob contents &optional with-affiliated)
   "Expand a parsed element or object to its original state.
+
 BLOB is either an element or an object.  CONTENTS is its
-contents, as a string or nil."
-  (funcall
-   (intern (format "org-element-%s-interpreter" (org-element-type blob)))
-   blob contents))
+contents, as a string or nil.
+
+When optional argument WITH-AFFILIATED is non-nil, add affiliated
+keywords before output."
+  (let ((type (org-element-type blob)))
+    (concat (and with-affiliated (memq type org-element-all-elements)
+		 (org-element--interpret-affiliated-keywords blob))
+	    (funcall (intern (format "org-element-%s-interpreter" type))
+		     blob contents))))
 
 (defun org-export-ignore-element (element info)
   "Add ELEMENT to `:ignore-list' in INFO.
@@ -2920,14 +2925,18 @@ Return code as a string."
 	     (narrow-to-region (point) (point-max))))
       ;; Initialize communication channel with original buffer
       ;; attributes, unavailable in its copy.
-      (let ((info (org-combine-plists
-		   (list :export-options
-			 (delq nil
-			       (list (and subtreep 'subtree)
-				     (and visible-only 'visible-only)
-				     (and body-only 'body-only))))
-		   (org-export--get-buffer-attributes)))
-	    tree)
+      (let* ((info (org-combine-plists
+		    (list :export-options
+			  (delq nil
+				(list (and subtreep 'subtree)
+				      (and visible-only 'visible-only)
+				      (and body-only 'body-only))))
+		    (org-export--get-buffer-attributes)))
+	     tree)
+	;; Store default title in `org-export--default-title' so that
+	;; `org-export-get-environment' can access it from buffer's
+	;; copy and then add it properly to communication channel.
+	(org-export-store-default-title)
 	;; Update communication channel and get parse tree.  Buffer
 	;; isn't parsed directly.  Instead, a temporary copy is
 	;; created, where include keywords, macros are expanded and
@@ -3251,73 +3260,79 @@ working directory.  It is used to properly resolve relative
 paths."
   (let ((case-fold-search t))
     (goto-char (point-min))
-    (while (re-search-forward "^[ \t]*#\\+INCLUDE: +\\(.*\\)[ \t]*$" nil t)
-      (when (eq (org-element-type (save-match-data (org-element-at-point)))
-		'keyword)
-	(beginning-of-line)
-	;; Extract arguments from keyword's value.
-	(let* ((value (match-string 1))
-	       (ind (org-get-indentation))
-	       (file (and (string-match "^\"\\(\\S-+\\)\"" value)
-			  (prog1 (expand-file-name (match-string 1 value) dir)
-			    (setq value (replace-match "" nil nil value)))))
-	       (lines
-		(and (string-match
-		      ":lines +\"\\(\\(?:[0-9]+\\)?-\\(?:[0-9]+\\)?\\)\"" value)
-		     (prog1 (match-string 1 value)
-		       (setq value (replace-match "" nil nil value)))))
-	       (env (cond ((string-match "\\<example\\>" value) 'example)
-			  ((string-match "\\<src\\(?: +\\(.*\\)\\)?" value)
-			   (match-string 1 value))))
-	       ;; Minimal level of included file defaults to the child
-	       ;; level of the current headline, if any, or one.  It
-	       ;; only applies is the file is meant to be included as
-	       ;; an Org one.
-	       (minlevel
-		(and (not env)
-		     (if (string-match ":minlevel +\\([0-9]+\\)" value)
-			 (prog1 (string-to-number (match-string 1 value))
-			   (setq value (replace-match "" nil nil value)))
-		       (let ((cur (org-current-level)))
-			 (if cur (1+ (org-reduced-level cur)) 1))))))
-	  ;; Remove keyword.
-	  (delete-region (point) (progn (forward-line) (point)))
-	  (cond
-	   ((not file) (error "Invalid syntax in INCLUDE keyword"))
-	   ((not (file-readable-p file)) (error "Cannot include file %s" file))
-	   ;; Check if files has already been parsed.  Look after
-	   ;; inclusion lines too, as different parts of the same file
-	   ;; can be included too.
-	   ((member (list file lines) included)
-	    (error "Recursive file inclusion: %s" file))
-	   (t
+    (while (re-search-forward "^[ \t]*#\\+INCLUDE:" nil t)
+      (let ((element (save-match-data (org-element-at-point))))
+	(when (eq (org-element-type element) 'keyword)
+	  (beginning-of-line)
+	  ;; Extract arguments from keyword's value.
+	  (let* ((value (org-element-property :value element))
+		 (ind (org-get-indentation))
+		 (file (and (string-match
+			     "^\\(\".+?\"\\|\\S-+\\)\\(?:\\s-+\\|$\\)" value)
+			    (prog1 (expand-file-name
+				    (org-remove-double-quotes
+				     (match-string 1 value))
+				    dir)
+			      (setq value (replace-match "" nil nil value)))))
+		 (lines
+		  (and (string-match
+			":lines +\"\\(\\(?:[0-9]+\\)?-\\(?:[0-9]+\\)?\\)\""
+			value)
+		       (prog1 (match-string 1 value)
+			 (setq value (replace-match "" nil nil value)))))
+		 (env (cond ((string-match "\\<example\\>" value) 'example)
+			    ((string-match "\\<src\\(?: +\\(.*\\)\\)?" value)
+			     (match-string 1 value))))
+		 ;; Minimal level of included file defaults to the child
+		 ;; level of the current headline, if any, or one.  It
+		 ;; only applies is the file is meant to be included as
+		 ;; an Org one.
+		 (minlevel
+		  (and (not env)
+		       (if (string-match ":minlevel +\\([0-9]+\\)" value)
+			   (prog1 (string-to-number (match-string 1 value))
+			     (setq value (replace-match "" nil nil value)))
+			 (let ((cur (org-current-level)))
+			   (if cur (1+ (org-reduced-level cur)) 1))))))
+	    ;; Remove keyword.
+	    (delete-region (point) (progn (forward-line) (point)))
 	    (cond
-	     ((eq env 'example)
-	      (insert
-	       (let ((ind-str (make-string ind ? ))
-		     (contents
-		      (org-escape-code-in-string
-		       (org-export--prepare-file-contents file lines))))
-		 (format "%s#+BEGIN_EXAMPLE\n%s%s#+END_EXAMPLE\n"
-			 ind-str contents ind-str))))
-	     ((stringp env)
-	      (insert
-	       (let ((ind-str (make-string ind ? ))
-		     (contents
-		      (org-escape-code-in-string
-		       (org-export--prepare-file-contents file lines))))
-		 (format "%s#+BEGIN_SRC %s\n%s%s#+END_SRC\n"
-			 ind-str env contents ind-str))))
+	     ((not file) nil)
+	     ((not (file-readable-p file))
+	      (error "Cannot include file %s" file))
+	     ;; Check if files has already been parsed.  Look after
+	     ;; inclusion lines too, as different parts of the same file
+	     ;; can be included too.
+	     ((member (list file lines) included)
+	      (error "Recursive file inclusion: %s" file))
 	     (t
-	      (insert
-	       (with-temp-buffer
-		 (let ((org-inhibit-startup t)) (org-mode))
-		 (insert
-		  (org-export--prepare-file-contents file lines ind minlevel))
-		 (org-export-expand-include-keyword
-		  (cons (list file lines) included)
-		  (file-name-directory file))
-		 (buffer-string))))))))))))
+	      (cond
+	       ((eq env 'example)
+		(insert
+		 (let ((ind-str (make-string ind ? ))
+		       (contents
+			(org-escape-code-in-string
+			 (org-export--prepare-file-contents file lines))))
+		   (format "%s#+BEGIN_EXAMPLE\n%s%s#+END_EXAMPLE\n"
+			   ind-str contents ind-str))))
+	       ((stringp env)
+		(insert
+		 (let ((ind-str (make-string ind ? ))
+		       (contents
+			(org-escape-code-in-string
+			 (org-export--prepare-file-contents file lines))))
+		   (format "%s#+BEGIN_SRC %s\n%s%s#+END_SRC\n"
+			   ind-str env contents ind-str))))
+	       (t
+		(insert
+		 (with-temp-buffer
+		   (let ((org-inhibit-startup t)) (org-mode))
+		   (insert
+		    (org-export--prepare-file-contents file lines ind minlevel))
+		   (org-export-expand-include-keyword
+		    (cons (list file lines) included)
+		    (file-name-directory file))
+		   (buffer-string)))))))))))))
 
 (defun org-export--prepare-file-contents (file &optional lines ind minlevel)
   "Prepare the contents of FILE for inclusion and return them as a string.
@@ -3971,27 +3986,41 @@ significant."
 	 ;; Split PATH at white spaces so matches are space
 	 ;; insensitive.
 	 (path (org-split-string
-		(if match-title-p (substring raw-path 1) raw-path))))
+		(if match-title-p (substring raw-path 1) raw-path)))
+	 ;; Cache for destinations that are not position dependent.
+	 (link-cache
+	  (or (plist-get info :resolve-fuzzy-link-cache)
+	      (plist-get (setq info (plist-put info :resolve-fuzzy-link-cache
+					       (make-hash-table :test 'equal)))
+			 :resolve-fuzzy-link-cache)))
+	 (cached (gethash path link-cache 'not-found)))
     (cond
+     ;; Destination is not position dependent: use cached value.
+     ((and (not match-title-p) (not (eq cached 'not-found))) cached)
      ;; First try to find a matching "<<path>>" unless user specified
      ;; he was looking for a headline (path starts with a "*"
      ;; character).
      ((and (not match-title-p)
-	   (org-element-map (plist-get info :parse-tree) 'target
-	     (lambda (blob)
-	       (and (equal (org-split-string (org-element-property :value blob))
-			   path)
-		    blob))
-	     info t)))
+	   (let ((match (org-element-map (plist-get info :parse-tree) 'target
+			  (lambda (blob)
+			    (and (equal (org-split-string
+					 (org-element-property :value blob))
+					path)
+				 blob))
+			  info 'first-match)))
+	     (and match (puthash path match link-cache)))))
      ;; Then try to find an element with a matching "#+NAME: path"
      ;; affiliated keyword.
      ((and (not match-title-p)
-	   (org-element-map (plist-get info :parse-tree)
-	       org-element-all-elements
-	     (lambda (el)
-	       (let ((name (org-element-property :name el)))
-		 (when (and name (equal (org-split-string name) path)) el)))
-	     info 'first-match)))
+	   (let ((match (org-element-map (plist-get info :parse-tree)
+			    org-element-all-elements
+			  (lambda (el)
+			    (let ((name (org-element-property :name el)))
+			      (when (and name
+					 (equal (org-split-string name) path))
+				el)))
+			  info 'first-match)))
+	     (and match (puthash path match link-cache)))))
      ;; Last case: link either points to a headline or to nothingness.
      ;; Try to find the source, with priority given to headlines with
      ;; the closest common ancestor.  If such candidate is found,
@@ -4014,15 +4043,15 @@ significant."
 		  info 'first-match)))))
 	;; Search among headlines sharing an ancestor with link, from
 	;; closest to farthest.
-	(or (catch 'exit
-	      (mapc
-	       (lambda (parent)
-		 (when (eq (org-element-type parent) 'headline)
-		   (let ((foundp (funcall find-headline path parent)))
-		     (when foundp (throw 'exit foundp)))))
-	       (org-export-get-genealogy link)) nil)
-	    ;; No match with a common ancestor: try full parse-tree.
-	    (funcall find-headline path (plist-get info :parse-tree))))))))
+	(catch 'exit
+	  (mapc
+	   (lambda (parent)
+	     (let ((foundp (funcall find-headline path parent)))
+	       (when foundp (throw 'exit foundp))))
+	   (let ((parent-hl (org-export-get-parent-headline link)))
+	     (cons parent-hl (org-export-get-genealogy parent-hl))))
+	  ;; No destination found: return nil.
+	  (and (not match-title-p) (puthash path nil link-cache))))))))
 
 (defun org-export-resolve-id-link (link info)
   "Return headline referenced as LINK destination.
@@ -4050,11 +4079,15 @@ INFO is a plist used as a communication channel.
 
 Return value can be a radio-target object or nil.  Assume LINK
 has type \"radio\"."
-  (let ((path (org-element-property :path link)))
+  (let ((path (replace-regexp-in-string
+	       "[ \r\t\n]+" " " (org-element-property :path link))))
     (org-element-map (plist-get info :parse-tree) 'radio-target
       (lambda (radio)
-	(and (compare-strings
-	      (org-element-property :value radio) 0 nil path 0 nil t)
+	(and (eq (compare-strings
+		  (replace-regexp-in-string
+		   "[ \r\t\n]+" " " (org-element-property :value radio))
+		  nil nil path nil nil t)
+		 t)
 	     radio))
       info 'first-match)))
 
@@ -4351,16 +4384,26 @@ All special columns will be ignored during export."
 INFO is a plist used as a communication channel.
 
 A table has a header when it contains at least two row groups."
-  (let ((rowgroup 1) row-flag)
-    (org-element-map table 'table-row
-      (lambda (row)
-	(cond
-	 ((> rowgroup 1) t)
-	 ((and row-flag (eq (org-element-property :type row) 'rule))
-	  (incf rowgroup) (setq row-flag nil))
-	 ((and (not row-flag) (eq (org-element-property :type row) 'standard))
-	  (setq row-flag t) nil)))
-      info)))
+  (let ((cache (or (plist-get info :table-header-cache)
+		   (plist-get (setq info
+				    (plist-put info :table-header-cache
+					       (make-hash-table :test 'eq)))
+			      :table-header-cache))))
+    (or (gethash table cache)
+	(let ((rowgroup 1) row-flag)
+	  (puthash
+	   table
+	   (org-element-map table 'table-row
+	     (lambda (row)
+	       (cond
+		((> rowgroup 1) t)
+		((and row-flag (eq (org-element-property :type row) 'rule))
+		 (incf rowgroup) (setq row-flag nil))
+		((and (not row-flag) (eq (org-element-property :type row)
+					 'standard))
+		 (setq row-flag t) nil)))
+	     info 'first-match)
+	   cache)))))
 
 (defun org-export-table-row-is-special-p (table-row info)
   "Non-nil if TABLE-ROW is considered special.
@@ -4399,26 +4442,28 @@ All special rows will be ignored during export."
 	   (eq special-row-p 'cookie)))))))
 
 (defun org-export-table-row-group (table-row info)
-  "Return TABLE-ROW's group.
+  "Return TABLE-ROW's group number, as an integer.
 
 INFO is a plist used as the communication channel.
 
 Return value is the group number, as an integer, or nil for
-special rows and table rules.  Group 1 is also table's header."
-  (unless (or (eq (org-element-property :type table-row) 'rule)
-	      (org-export-table-row-is-special-p table-row info))
-    (let ((group 0) row-flag)
-      (catch 'found
-	(mapc
-	 (lambda (row)
-	   (cond
-	    ((and (eq (org-element-property :type row) 'standard)
-		  (not (org-export-table-row-is-special-p row info)))
-	     (unless row-flag (incf group) (setq row-flag t)))
-	    ((eq (org-element-property :type row) 'rule)
-	     (setq row-flag nil)))
-	   (when (eq table-row row) (throw 'found group)))
-	 (org-element-contents (org-export-get-parent table-row)))))))
+special rows and rows separators.  First group is also table's
+header."
+  (let ((cache (or (plist-get info :table-row-group-cache)
+		   (plist-get (setq info
+				    (plist-put info :table-row-group-cache
+					       (make-hash-table :test 'eq)))
+			      :table-row-group-cache))))
+    (cond ((gethash table-row cache))
+	  ((eq (org-element-property :type table-row) 'rule) nil)
+	  (t (let ((group 0) row-flag)
+	       (org-element-map (org-export-get-parent table-row) 'table-row
+		 (lambda (row)
+		   (if (eq (org-element-property :type row) 'rule)
+		       (setq row-flag nil)
+		     (unless row-flag (incf group) (setq row-flag t)))
+		   (when (eq table-row row) (puthash table-row group cache)))
+		 info 'first-match))))))
 
 (defun org-export-table-cell-width (table-cell info)
   "Return TABLE-CELL contents width.
@@ -4428,31 +4473,34 @@ INFO is a plist used as the communication channel.
 Return value is the width given by the last width cookie in the
 same column as TABLE-CELL, or nil."
   (let* ((row (org-export-get-parent table-cell))
+	 (table (org-export-get-parent row))
 	 (column (let ((cells (org-element-contents row)))
 		   (- (length cells) (length (memq table-cell cells)))))
-	 (table (org-export-get-parent-table table-cell))
-	 cookie-width)
-    (mapc
-     (lambda (row)
-       (cond
-	;; In a special row, try to find a width cookie at COLUMN.
-	((org-export-table-row-is-special-p row info)
-	 (let ((value (org-element-contents
-		       (elt (org-element-contents row) column))))
-	   ;; The following checks avoid expanding unnecessarily the
-	   ;; cell with `org-export-data'
-	   (when (and value
-		      (not (cdr value))
-		      (stringp (car value))
-		      (string-match "\\`<[lrc]?\\([0-9]+\\)?>\\'" (car value))
-		      (match-string 1 (car value)))
-	     (setq cookie-width
-		   (string-to-number (match-string 1 (car value)))))))
-	;; Ignore table rules.
-	((eq (org-element-property :type row) 'rule))))
-     (org-element-contents table))
-    ;; Return value.
-    cookie-width))
+	 (cache (or (plist-get info :table-cell-width-cache)
+		    (plist-get (setq info
+				     (plist-put info :table-cell-width-cache
+						(make-hash-table :test 'equal)))
+			       :table-cell-width-cache)))
+	 (key (cons table column))
+	 (value (gethash key cache 'no-result)))
+    (if (not (eq value 'no-result)) value
+      (let (cookie-width)
+	(dolist (row (org-element-contents table)
+		     (puthash key cookie-width cache))
+	  (when (org-export-table-row-is-special-p row info)
+	    ;; In a special row, try to find a width cookie at COLUMN.
+	    (let* ((value (org-element-contents
+			   (elt (org-element-contents row) column)))
+		   (cookie (car value)))
+	      ;; The following checks avoid expanding unnecessarily
+	      ;; the cell with `org-export-data'.
+	      (when (and value
+			 (not (cdr value))
+			 (stringp cookie)
+			 (string-match "\\`<[lrc]?\\([0-9]+\\)?>\\'" cookie)
+			 (match-string 1 cookie))
+		(setq cookie-width
+		      (string-to-number (match-string 1 cookie)))))))))))
 
 (defun org-export-table-cell-alignment (table-cell info)
   "Return TABLE-CELL contents alignment.
@@ -4465,57 +4513,66 @@ alignment value will be deduced from fraction of numbers in the
 column (see `org-table-number-fraction' for more information).
 Possible values are `left', `right' and `center'."
   (let* ((row (org-export-get-parent table-cell))
+	 (table (org-export-get-parent row))
 	 (column (let ((cells (org-element-contents row)))
 		   (- (length cells) (length (memq table-cell cells)))))
-	 (table (org-export-get-parent-table table-cell))
-	 (number-cells 0)
-	 (total-cells 0)
-	 cookie-align
-	 previous-cell-number-p)
-    (mapc
-     (lambda (row)
-       (cond
-	;; In a special row, try to find an alignment cookie at
-	;; COLUMN.
-	((org-export-table-row-is-special-p row info)
-	 (let ((value (org-element-contents
-		       (elt (org-element-contents row) column))))
-	   ;; Since VALUE is a secondary string, the following checks
-	   ;; avoid useless expansion through `org-export-data'.
-	   (when (and value
-		      (not (cdr value))
-		      (stringp (car value))
-		      (string-match "\\`<\\([lrc]\\)?\\([0-9]+\\)?>\\'"
-				    (car value))
-		      (match-string 1 (car value)))
-	     (setq cookie-align (match-string 1 (car value))))))
-	;; Ignore table rules.
-	((eq (org-element-property :type row) 'rule))
-	;; In a standard row, check if cell's contents are expressing
-	;; some kind of number.  Increase NUMBER-CELLS accordingly.
-	;; Though, don't bother if an alignment cookie has already
-	;; defined cell's alignment.
-	((not cookie-align)
-	 (let ((value (org-export-data
-		       (org-element-contents
-			(elt (org-element-contents row) column))
-		       info)))
-	   (incf total-cells)
-	   ;; Treat an empty cell as a number if it follows a number
-	   (if (not (or (string-match org-table-number-regexp value)
-			(and (string= value "") previous-cell-number-p)))
-	       (setq previous-cell-number-p nil)
-	     (setq previous-cell-number-p t)
-	     (incf number-cells))))))
-     (org-element-contents table))
-    ;; Return value.  Alignment specified by cookies has precedence
-    ;; over alignment deduced from cells contents.
-    (cond ((equal cookie-align "l") 'left)
-	  ((equal cookie-align "r") 'right)
-	  ((equal cookie-align "c") 'center)
-	  ((>= (/ (float number-cells) total-cells) org-table-number-fraction)
-	   'right)
-	  (t 'left))))
+	 (cache (or (plist-get info :table-cell-alignment-cache)
+		    (plist-get (setq info
+				     (plist-put info :table-cell-alignment-cache
+						(make-hash-table :test 'equal)))
+			       :table-cell-alignment-cache))))
+    (or (gethash (cons table column) cache)
+	(let ((number-cells 0)
+	      (total-cells 0)
+	      cookie-align
+	      previous-cell-number-p)
+	  (dolist (row (org-element-contents (org-export-get-parent row)))
+	    (cond
+	     ;; In a special row, try to find an alignment cookie at
+	     ;; COLUMN.
+	     ((org-export-table-row-is-special-p row info)
+	      (let ((value (org-element-contents
+			    (elt (org-element-contents row) column))))
+		;; Since VALUE is a secondary string, the following
+		;; checks avoid useless expansion through
+		;; `org-export-data'.
+		(when (and value
+			   (not (cdr value))
+			   (stringp (car value))
+			   (string-match "\\`<\\([lrc]\\)?\\([0-9]+\\)?>\\'"
+					 (car value))
+			   (match-string 1 (car value)))
+		  (setq cookie-align (match-string 1 (car value))))))
+	     ;; Ignore table rules.
+	     ((eq (org-element-property :type row) 'rule))
+	     ;; In a standard row, check if cell's contents are
+	     ;; expressing some kind of number.  Increase NUMBER-CELLS
+	     ;; accordingly.  Though, don't bother if an alignment
+	     ;; cookie has already defined cell's alignment.
+	     ((not cookie-align)
+	      (let ((value (org-export-data
+			    (org-element-contents
+			     (elt (org-element-contents row) column))
+			    info)))
+		(incf total-cells)
+		;; Treat an empty cell as a number if it follows
+		;; a number.
+		(if (not (or (string-match org-table-number-regexp value)
+			     (and (string= value "") previous-cell-number-p)))
+		    (setq previous-cell-number-p nil)
+		  (setq previous-cell-number-p t)
+		  (incf number-cells))))))
+	  ;; Return value.  Alignment specified by cookies has
+	  ;; precedence over alignment deduced from cell's contents.
+	  (puthash (cons table column)
+		   (cond ((equal cookie-align "l") 'left)
+			 ((equal cookie-align "r") 'right)
+			 ((equal cookie-align "c") 'center)
+			 ((>= (/ (float number-cells) total-cells)
+			      org-table-number-fraction)
+			  'right)
+			 (t 'left))
+		   cache)))))
 
 (defun org-export-table-cell-borders (table-cell info)
   "Return TABLE-CELL borders.
@@ -4706,20 +4763,14 @@ Address is a CONS cell (ROW . COLUMN), where ROW and COLUMN are
 zero-based index.  Only exportable cells are considered.  The
 function returns nil for other cells."
   (let* ((table-row (org-export-get-parent table-cell))
-	 (table (org-export-get-parent-table table-cell)))
-    ;; Ignore cells in special rows or in special column.
-    (unless (or (org-export-table-row-is-special-p table-row info)
-		(and (org-export-table-has-special-column-p table)
-		     (eq (car (org-element-contents table-row)) table-cell)))
-      (cons
-       ;; Row number.
-       (org-export-table-row-number (org-export-get-parent table-cell) info)
-       ;; Column number.
-       (let ((col-count 0))
-	 (org-element-map table-row 'table-cell
-	   (lambda (cell)
-	     (if (eq cell table-cell) col-count (incf col-count) nil))
-	   info 'first-match))))))
+	 (row-number (org-export-table-row-number table-row info)))
+    (when row-number
+      (cons row-number
+	    (let ((col-count 0))
+	      (org-element-map table-row 'table-cell
+		(lambda (cell)
+		  (if (eq cell table-cell) col-count (incf col-count) nil))
+		info 'first-match))))))
 
 (defun org-export-get-table-cell-at (address table info)
   "Return regular table-cell object at ADDRESS in TABLE.
@@ -5045,7 +5096,7 @@ Return the new string."
 ;; `org-export-get-genealogy' returns the full genealogy of a given
 ;; element or object, from closest parent to full parse tree.
 
-(defun org-export-get-parent (blob)
+(defsubst org-export-get-parent (blob)
   "Return BLOB parent or nil.
 BLOB is the element or object considered."
   (org-element-property :parent blob))

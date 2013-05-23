@@ -1117,8 +1117,7 @@ Paragraph"
   "Test `latex-environment' parser."
   (should
    (org-test-with-temp-text "\\begin{equation}\ne^{i\\pi}+1=0\n\\end{equation}"
-     (org-element-map
-      (org-element-parse-buffer) 'latex-environment 'identity)))
+     (org-element-map (org-element-parse-buffer) 'latex-environment 'identity)))
   ;; Allow nested environments.
   (should
    (equal
@@ -1136,7 +1135,21 @@ e^{i\\pi}+1=0
       (org-element-property
        :value
        (org-element-map
-	(org-element-parse-buffer) 'latex-environment 'identity nil t))))))
+	   (org-element-parse-buffer) 'latex-environment 'identity nil t)))))
+  ;; Allow environments with options and arguments.
+  (should
+   (eq 'latex-environment
+       (org-test-with-temp-text
+	   "\\begin{theorem}[Euler]\ne^{i\\pi}+1=0\n\\end{theorem}"
+	 (org-element-type (org-element-at-point)))))
+  (should
+   (eq 'latex-environment
+       (org-test-with-temp-text "\\begin{env}{arg}\nvalue\n\\end{env}"
+	 (org-element-type (org-element-at-point)))))
+  (should-not
+   (eq 'latex-environment
+       (org-test-with-temp-text "\\begin{env}{arg} something\nvalue\n\\end{env}"
+	 (org-element-type (org-element-at-point))))))
 
 
 ;;;; Latex Fragment
@@ -2185,7 +2198,25 @@ CLOCK: [2012-01-01 sun. 00:01]--[2012-01-01 sun. 00:02] =>  0:01"))
   (should (equal (org-test-parse-and-interpret ": Test") ": Test\n"))
   ;; Preserve indentation.
   (should (equal (org-test-parse-and-interpret ":  2 blanks\n: 1 blank")
-		 ":  2 blanks\n: 1 blank\n")))
+		 ":  2 blanks\n: 1 blank\n"))
+  ;; Remove last newline character
+  (should
+   (equal (org-element-fixed-width-interpreter
+	   '(fixed-width (:value "Test\n")) nil)
+	  ": Test"))
+  (should
+   (equal (org-element-fixed-width-interpreter
+	   '(fixed-width (:value "Test")) nil)
+	  ": Test"))
+  ;; Handle empty string.
+  (should
+   (equal (org-element-fixed-width-interpreter
+	   '(fixed-width (:value "")) nil)
+	  ""))
+  ;; Handle nil value.
+  (should-not
+   (org-element-fixed-width-interpreter
+    '(fixed-width (:value nil)) nil)))
 
 (ert-deftest test-org-element/horizontal-rule-interpreter ()
   "Test horizontal rule interpreter."
@@ -2200,7 +2231,10 @@ CLOCK: [2012-01-01 sun. 00:01]--[2012-01-01 sun. 00:02] =>  0:01"))
   "Test latex environment interpreter."
   (should (equal (org-test-parse-and-interpret
 		  "\\begin{equation}\n1+1=2\n\\end{equation}")
-		 "\\begin{equation}\n1+1=2\n\\end{equation}\n")))
+		 "\\begin{equation}\n1+1=2\n\\end{equation}\n"))
+  (should (equal (org-test-parse-and-interpret
+		  "\\begin{theorem}[me]\n1+1=2\n\\end{theorem}")
+		 "\\begin{theorem}[me]\n1+1=2\n\\end{theorem}\n")))
 
 (ert-deftest test-org-element/planning-interpreter ()
   "Test planning interpreter."
@@ -2584,6 +2618,20 @@ Paragraph \\alpha."
   ;; 3. `org-element-at-point' should never parse a secondary string.
   (org-test-with-temp-text "* Headline"
     (should (stringp (org-element-property :title (org-element-at-point))))))
+
+
+
+;;; Test Visible Only Parsing
+
+(ert-deftest test-org-element/parse-buffer-visible ()
+  "Test `org-element-parse-buffer' with visible only argument."
+  (should
+   (equal '("H1" "H3" "H5")
+      (org-test-with-temp-text
+	  "* H1\n** H2\n** H3 :visible:\n** H4\n** H5 :visible:"
+	(org-occur ":visible:")
+	(org-element-map (org-element-parse-buffer nil t) 'headline
+	  (lambda (hl) (org-element-property :raw-value hl)))))))
 
 
 
