@@ -25,13 +25,29 @@
 
 ;; This file contains the code for managing your contacts into Org-mode.
 
-;; To enter new contacts, you can use `org-capture' and a template just like
+;; To enter new contacts, you can use `org-capture' and a minimal template just like
 ;; this:
 
 ;;         ("c" "Contacts" entry (file "~/Org/contacts.org")
 ;;          "* %(org-contacts-template-name)
 ;; :PROPERTIES:
 ;; :EMAIL: %(org-contacts-template-email)
+;; :END:")))
+;;
+;; You can also use a complex template, for example:
+;;
+;;         ("c" "Contacts" entry (file "~/Org/contacts.org")
+;;          "* %(org-contacts-template-name)
+;; :PROPERTIES:
+;; :EMAIL: %(org-contacts-template-email)
+;; :PHONE:
+;; :ALIAS:
+;; :NICKNAME:
+;; :IGNORE:
+;; :ICON:
+;; :NOTE:
+;; :ADDRESS:
+;; :BIRTHDAY:
 ;; :END:")))
 ;;
 ;;; Code:
@@ -83,6 +99,12 @@ When set to nil, all your Org files will be used."
 
 (defcustom org-contacts-alias-property "ALIAS"
   "Name of the property for contact name alias."
+  :type 'string
+  :group 'org-contacts)
+
+(defcustom org-contacts-ignore-property "IGNORE"
+  "Name of the property, which values will be ignored when
+completing or exporting to vcard."
   :type 'string
   :group 'org-contacts)
 
@@ -476,6 +498,16 @@ A group FOO is composed of contacts with the tag FOO."
 		(completion-table-case-fold completion-list
 					    (not org-contacts-completion-ignore-case))))))))
 
+
+(defun org-contacts-remove-ignored-property-values (ignore-list list)
+  "Remove all ignore-list's elements from list and you can use
+   regular expressions in the ignore list."
+    (remove-if (lambda (el)
+               (find-if (lambda (x)
+                          (string-match-p x el))
+                        ignore-list))
+             list))
+
 (defun org-contacts-complete-name (start end string)
   "Complete text at START with a user name and email."
   (let* ((completion-ignore-case org-contacts-completion-ignore-case)
@@ -484,10 +516,18 @@ A group FOO is composed of contacts with the tag FOO."
 		;; The contact name is always the car of the assoc-list
 		;; returned by `org-contacts-filter'.
 		for contact-name = (car contact)
+
+		;; Build the list of the email addresses which has
+		;; been expired
+		for ignore-list = (org-contacts-split-property
+				   (or (cdr (assoc-string org-contacts-ignore-property
+							  (caddr contact))) ""))
 		;; Build the list of the user email addresses.
-		for email-list = (org-contacts-split-property (or
-						(cdr (assoc-string org-contacts-email-property
-								   (caddr contact))) ""))
+		for email-list = (org-contacts-remove-ignored-property-values
+				  ignore-list
+				  (org-contacts-split-property
+				   (or (cdr (assoc-string org-contacts-email-property
+							  (caddr contact))) "")))
 		;; If the user has email addresses…
 		if email-list
 		;; … append a list of USER <EMAIL>.
@@ -868,7 +908,10 @@ to do our best."
 	 (name (org-contacts-vcard-escape (car contact)))
 	 (n (org-contacts-vcard-encode-name name))
 	 (email (cdr (assoc-string org-contacts-email-property properties)))
-	 (tel  (cdr (assoc-string org-contacts-tel-property properties)))
+	 (tel (cdr (assoc-string org-contacts-tel-property properties)))
+	 (ignore-list (cdr (assoc-string org-contacts-ignore-property properties)))
+	 (ignore-list (when ignore-list
+			(org-contacts-split-property ignore-list)))
 	 (note (cdr (assoc-string org-contacts-note-property properties)))
 	 (bday (org-contacts-vcard-escape (cdr (assoc-string org-contacts-birthday-property properties))))
 	 (addr (cdr (assoc-string org-contacts-address-property properties)))
@@ -877,7 +920,7 @@ to do our best."
 	 emails-list result phones-list)
     (concat head
 	    (when email (progn
-			  (setq emails-list (org-contacts-split-property email))
+			  (setq emails-list (org-contacts-remove-ignored-property-values ignore-list (org-contacts-split-property email)))
 			  (setq result "")
 			  (while emails-list
 			    (setq result (concat result  "EMAIL:" (org-contacts-strip-link (car emails-list)) "\n"))
@@ -886,7 +929,7 @@ to do our best."
 	    (when addr
 	      (format "ADR:;;%s\n" (replace-regexp-in-string "\\, ?" ";" addr)))
 	    (when tel (progn
-			(setq phones-list (org-contacts-split-property tel))
+			(setq phones-list (org-contacts-remove-ignored-property-values ignore-list (org-contacts-split-property tel)))
 			(setq result "")
 			(while phones-list
 			  (setq result (concat result  "TEL:" (org-contacts-strip-link (car phones-list)) "\n"))
@@ -971,12 +1014,12 @@ normally \"[,; \f\t\n\r\v]+\", and OMIT-NULLS is forced to t.
 If OMIT-NULLS is t, zero-length substrings are omitted from the list \(so
 that for the default value of SEPARATORS leading and trailing whitespace
 are effectively trimmed).  If nil, all zero-length substrings are retained."
-(let* ((keep-nulls (or nil omit-nulls))
-         (rexp (or separators org-contacts-property-values-separators))
-         (inputlist (split-string string rexp keep-nulls))
-         (linkstring "")
-         (bufferstring "")
-         (proplist (list "")))
+  (let* ((omit-nulls (if separators omit-nulls t))
+	 (rexp (or separators org-contacts-property-values-separators))
+	 (inputlist (split-string string rexp omit-nulls))
+	 (linkstring "")
+	 (bufferstring "")
+	 (proplist (list "")))
     (while inputlist
       (setq bufferstring (pop inputlist))
       (if (string-match "\\[\\[" bufferstring)

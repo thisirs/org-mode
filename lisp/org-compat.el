@@ -113,17 +113,40 @@ any other entries, and any resulting duplicates will be removed entirely."
 
 ;;;; Emacs/XEmacs compatibility
 
-(defun org-defvaralias (new-alias base-variable &optional docstring)
-  "Compatibility function for defvaralias.
-Don't do the aliasing when `defvaralias' is not bound."
-  (declare (indent 1))
-  (when (fboundp 'defvaralias)
-    (defvaralias new-alias base-variable docstring)))
-
 (eval-and-compile
+  (defun org-defvaralias (new-alias base-variable &optional docstring)
+    "Compatibility function for defvaralias.
+Don't do the aliasing when `defvaralias' is not bound."
+    (declare (indent 1))
+    (when (fboundp 'defvaralias)
+      (defvaralias new-alias base-variable docstring)))
+
   (when (and (not (boundp 'user-emacs-directory))
 	     (boundp 'user-init-directory))
     (org-defvaralias 'user-emacs-directory 'user-init-directory)))
+
+  (when (featurep 'xemacs)
+    (defadvice custom-handle-keyword
+      (around org-custom-handle-keyword
+	      activate preactivate)
+      "Remove custom keywords not recognized to avoid producing an error."
+      (cond
+       ((eq (ad-get-arg 1) :package-version))
+       (t ad-do-it)))
+    (defadvice define-obsolete-variable-alias
+      (around org-define-obsolete-variable-alias
+	      activate preactivate)
+      "Declare arguments defined in later versions of Emacs."
+      (setcdr (cdr (ad-get-args 0)) nil)
+      ad-do-it)
+    (defadvice define-obsolete-function-alias
+      (around org-define-obsolete-function-alias
+	      activate preactivate)
+      "Declare arguments defined in later versions of Emacs."
+      (setcdr (cdr (ad-get-args 0)) nil)
+      ad-do-it)
+    (defvar customize-package-emacs-version-alist nil)
+    (defvar temporary-file-directory (temp-directory)))
 
 ;; Keys
 (defconst org-xemacs-key-equivalents

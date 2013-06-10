@@ -267,10 +267,7 @@ this template."
 		    (cons
 		     (org-element-property :language element)
 		     (let ((params (org-element-property :parameters element)))
-		       (and params (org-split-string params "[ \t]+")))))
-                   (preserve-indent
-		    (or org-src-preserve-indentation
-			(org-element-property :preserve-indent element))))
+		       (and params (org-split-string params "[ \t]+"))))))
               ;; Execute all non-block elements between POS and
               ;; current block.
               (org-babel-exp-non-block-elements pos begin)
@@ -291,7 +288,7 @@ this template."
 		       (goto-char match-start)
 		       (delete-region (point) block-end)
 		       (insert replacement)
-		       (if preserve-indent
+		       (if (org-element-property :preserve-indent element)
 			   ;; Indent only the code block markers.
 			   (save-excursion (skip-chars-backward " \r\t\n")
 					   (indent-line-to ind)
@@ -390,7 +387,8 @@ inhibit insertion of results into the buffer."
 		    (org-babel-expand-noweb-references
 		     info (org-babel-exp-get-export-buffer))
 		  (nth 1 info)))
-	  (info (copy-sequence info)))
+	  (info (copy-sequence info))
+	  (org-babel-current-src-block-location (point-marker)))
       ;; skip code blocks which we can't evaluate
       (when (fboundp (intern (concat "org-babel-execute:" lang)))
 	(org-babel-eval-wipe-error-buffer)

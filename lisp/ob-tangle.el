@@ -30,7 +30,10 @@
 (eval-when-compile
   (require 'cl))
 
+(declare-function org-edit-special "org" (&optional arg))
 (declare-function org-link-escape "org" (text &optional table))
+(declare-function org-store-link "org" (arg))
+(declare-function org-open-link-from-string "org" (s &optional arg reference-buffer))
 (declare-function org-heading-components "org" ())
 (declare-function org-back-to-heading "org" (invisible-ok))
 (declare-function org-fill-template "org" (template alist))
@@ -111,7 +114,7 @@ result.  The default value is `org-babel-trim'."
 (defun org-babel-find-file-noselect-refresh (file)
   "Find file ensuring that the latest changes on disk are
 represented in the file."
-  (find-file-noselect file)
+  (find-file-noselect file 'nowarn)
   (with-current-buffer (get-file-buffer file)
     (revert-buffer t t t)))
 
@@ -207,6 +210,7 @@ used to limit the exported source code blocks by language."
 		  (let* ((tangle (funcall get-spec :tangle))
 			 (she-bang ((lambda (sheb) (when (> (length sheb) 0) sheb))
 				    (funcall get-spec :shebang)))
+			 (tangle-mode (funcall get-spec :tangle-mode))
 			 (base-name (cond
 				     ((string= "yes" tangle)
 				      (file-name-sans-extension
@@ -242,10 +246,14 @@ used to limit the exported source code blocks by language."
 			    (insert content)
 			    (write-region nil nil file-name))))
 		      ;; if files contain she-bangs, then make the executable
-		      (when she-bang (set-file-modes file-name #o755))
+		      (when she-bang
+			(unless tangle-mode (setq tangle-mode #o755)))
 		      ;; update counter
 		      (setq block-counter (+ 1 block-counter))
-		      (add-to-list 'path-collector file-name)))))
+		      (add-to-list 'path-collector
+				   (cons file-name tangle-mode)
+				   nil
+				   (lambda (a b) (equal (car a) (car b))))))))
 	      specs)))
 	 (if (equal arg '(4))
 	     (org-babel-tangle-single-block 1 t)
@@ -253,15 +261,20 @@ used to limit the exported source code blocks by language."
 	(message "Tangled %d code block%s from %s" block-counter
 		 (if (= block-counter 1) "" "s")
 		 (file-name-nondirectory
-		  (buffer-file-name (or (buffer-base-buffer) (current-buffer)))))
+		  (buffer-file-name
+		   (or (buffer-base-buffer) (current-buffer)))))
 	;; run `org-babel-post-tangle-hook' in all tangled files
 	(when org-babel-post-tangle-hook
 	  (mapc
 	   (lambda (file)
 	     (org-babel-with-temp-filebuffer file
 	       (run-hooks 'org-babel-post-tangle-hook)))
-	   path-collector))
-	path-collector))))
+	   (mapcar #'car path-collector)))
+	;; set permissions on tangled files
+	(mapc (lambda (pair)
+		(when (cdr pair) (set-file-modes (car pair) (cdr pair))))
+	      path-collector)
+	(mapcar #'car path-collector)))))
 
 (defun org-babel-tangle-clean ()
   "Remove comments inserted by `org-babel-tangle'.
@@ -493,13 +506,15 @@ which enable the original code blocks to be found."
   "Jump from a tangled code file to the related Org-mode file."
   (interactive)
   (let ((mid (point))
-	start end done
+	start body-start end done
         target-buffer target-char link path block-name body)
     (save-window-excursion
       (save-excursion
 	(while (and (re-search-backward org-bracket-link-analytic-regexp nil t)
 		    (not ; ever wider searches until matching block comments
 		     (and (setq start (point-at-eol))
+			  (setq body-start (save-excursion
+					     (forward-line 2) (point-at-bol)))
 			  (setq link (match-string 0))
 			  (setq path (match-string 3))
 			  (setq block-name (match-string 5))
@@ -520,8 +535,19 @@ which enable the original code blocks to be found."
           (org-babel-next-src-block
            (string-to-number (match-string 1 block-name)))
         (org-babel-goto-named-src-block block-name))
+      ;; position at the beginning of the code block body
+      (goto-char (org-babel-where-is-src-block-head))
+      (forward-line 1)
+      ;; Use org-edit-special to isolate the code.
+      (org-edit-special)
+      ;; Then move forward the correct number of characters in the
+      ;; code buffer.
+      (forward-char (- mid body-start))
+      ;; And return to the Org-mode buffer with the point in the right
+      ;; place.
+      (org-edit-src-exit)
       (setq target-char (point)))
-    (pop-to-buffer target-buffer)
+    (org-src-switch-to-buffer target-buffer t)
     (prog1 body (goto-char target-char))))
 
 (provide 'ob-tangle)

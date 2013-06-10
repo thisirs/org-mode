@@ -37,7 +37,7 @@
 (require 'ox)
 (require 'ox-publish)
 (require 'format-spec)
-(eval-when-compile (require 'cl) (require 'table))
+(eval-when-compile (require 'cl) (require 'table nil 'noerror))
 
 
 ;;; Function Declarations
@@ -1306,6 +1306,14 @@ CSS classes, then this prefix can be very useful."
   (concat "<" tag " " attr
 	  (if (org-html-xhtml-p info) " />" ">")))
 
+(defun org-html-doctype (info)
+  "Return correct html doctype tag from `org-html-doctype-alist',
+or the literal value of :html-doctype from INFO if :html-doctype
+is not found in the alist.
+INFO is a plist used as a communication channel."
+  (let ((dt (plist-get info :html-doctype)))
+    (or (cdr (assoc dt org-html-doctype-alist)) dt)))
+
 (defun org-html--make-attribute-string (attributes)
   "Return a list of attributes, as a string.
 ATTRIBUTES is a plist where values are either strings or nil. An
@@ -1498,10 +1506,9 @@ INFO is a plist used as a communication channel."
 		     "iso-8859-1")))
     (concat
      (format "<title>%s</title>\n" title)
-     (format
-      (when :time-stamp-file
-	(format-time-string
-	 (concat "<!-- " org-html-metadata-timestamp-format " -->\n"))))
+     (when (plist-get info :time-stamp-file)
+       (format-time-string
+	 (concat "<!-- " org-html-metadata-timestamp-format " -->\n")))
      (format
       (if (org-html-html5-p info)
 	  (org-html-close-tag "meta" " charset=\"%s\"" info)
@@ -1696,11 +1703,7 @@ holding export options."
 			   (fboundp 'coding-system-get)
 			   (coding-system-get org-html-coding-system 'mime-charset))
 		      "iso-8859-1"))))))
-   (let* ((dt (plist-get info :html-doctype))
-	  (dt-cons (assoc dt org-html-doctype-alist)))
-     (if dt-cons
-	 (cdr dt-cons)
-       dt))
+   (org-html-doctype info)
    "\n"
    (concat "<html"
 	   (when (org-html-xhtml-p info)
@@ -2090,7 +2093,7 @@ channel."
 CONTENTS is nil.  INFO is a plist holding contextual
 information."
   (format (or (cdr (assq 'code org-html-text-markup-alist)) "%s")
-	  (org-html-plain-text (org-element-property :value code) info)))
+	  (org-html-encode-plain-text (org-element-property :value code))))
 
 ;;;; Drawer
 
@@ -3222,7 +3225,7 @@ holding contextual information."
 CONTENTS is nil.  INFO is a plist holding contextual
 information."
   (format (or (cdr (assq 'verbatim org-html-text-markup-alist)) "%s")
-	  (org-html-plain-text (org-element-property :value verbatim) info)))
+	  (org-html-encode-plain-text (org-element-property :value verbatim))))
 
 ;;;; Verse Block
 

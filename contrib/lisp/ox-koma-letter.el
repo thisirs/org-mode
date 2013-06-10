@@ -4,6 +4,8 @@
 
 ;; Author: Nicolas Goaziou <n.goaziou AT gmail DOT com>
 ;;         Alan Schmitt <alan.schmitt AT polytechnique DOT org>
+;;         Viktor Rosenfeld <listuser36 AT gmail DOT com>
+;;         Rasmus Pank Roulund <emacs AT pank DOT eu>
 ;; Keywords: org, wp, tex
 
 ;; This program is free software: you can redistribute it and/or modify
@@ -80,6 +82,30 @@
   :group 'org-export-koma-letter
   :type 'string)
 
+(defcustom org-koma-letter-author 'user-full-name
+  "The sender's name.
+
+This variable defaults to calling the function `user-full-name'
+which just returns the current `user-full-name'.  Alternatively a
+string, nil or a function may be given. Functions must return a
+string."
+  :group 'org-export-koma-letter
+  :type '(radio (function-item user-full-name)
+		(string)
+		(function)
+		(const nil)))
+
+(defcustom org-koma-letter-email 'org-koma-letter-email
+  "The sender's email address.
+
+This variable defaults to the value `org-koma-letter-email' which
+returns `user-mail-address'.  Alternatively a string, nil or a
+function may be given.  Functions must return a string."
+  :group 'org-export-koma-letter
+  :type '(radio (function-item org-koma-letter-email)
+		(string)
+		(function)
+		(const nil)))
 
 (defcustom org-koma-letter-from-address nil
   "Sender's address, as a string."
@@ -90,7 +116,6 @@
   "Sender's phone number, as a string."
   :group 'org-export-koma-letter
   :type 'string)
-
 
 (defcustom org-koma-letter-place nil
   "Place from which the letter is sent."
@@ -107,15 +132,41 @@
   :group 'org-export-koma-letter
   :type 'string)
 
-(defcustom org-koma-letter-signature "\\usekomavar{fromname}"
+(defcustom org-koma-letter-signature nil
   "String used as the signature."
   :group 'org-export-koma-letter
   :type 'string)
 
-(defcustom org-koma-letter-use-subject "untitled"
-  "Use the title as the letter's subject."
-  :group 'org-export-koma-letter
-  :type 'string)
+(defcustom org-koma-letter-subject-format t
+  "Use the title as the subject of the letter.  At the time of
+writing the following values are allowed:
+
+ - afteropening: subject after opening
+ - beforeopening: subject before opening
+ - centered: subject centered
+ - left:subject left-justified
+ - right: subject right-justified
+ - titled: add title/description to subject
+ - underlined: set subject underlined (see note in text please)
+ - untitled: do not add title/description to subject.
+ - No-export: do no insert a subject even if present.
+
+Please refer to the KOMA-script manual (Table 4.16. in the
+English manual of 2012-07-22)"
+  :type '(set   (const  "afteropening")
+		(const  "beforeopening")
+		(const  "centered")
+		(const  "left")
+		(const  "right")
+		(const  "underlined")
+		(const  "titled")
+		(const  "untitled")
+		(const :tag "No export" nil)
+		(const :tag "Default options" t)
+		(string))
+  :group 'org-export-koma-letter)
+
+
 
 (defcustom org-koma-letter-use-backaddress t
   "Print return address in small line above to address."
@@ -147,30 +198,48 @@ Use `foldmarks:true' to activate default fold marks or
   :group 'org-export-koma-letter
   :type 'boolean)
 
+(defconst org-koma-letter-special-tags-after-closing
+  '("ps" "encl" "cc")
+  "Header tags to be inserted after closing")
+
+(defconst org-koma-letter-special-tags-after-letter '("after_letter")
+  "Header tags to be inserted after closing")
+
+(defvar org-koma-letter-special-contents nil "holds special
+content temporarily.")
+
+
 
 ;;; Define Back-End
 
 (org-export-define-derived-backend 'koma-letter 'latex
   :options-alist
   '((:lco "LCO" nil org-koma-letter-class-option-file)
-    (:sender "AUTHOR" nil user-full-name t)
+    (:author "AUTHOR" nil (org-koma-letter--get-custom org-koma-letter-author) t)
     (:from-address "FROM_ADDRESS" nil org-koma-letter-from-address newline)
     (:phone-number "PHONE_NUMBER" nil org-koma-letter-phone-number)
-    (:email "EMAIL" nil user-mail-address t)
+    (:email "EMAIL" nil (org-koma-letter--get-custom org-koma-letter-email) t)
     (:to-address "TO_ADDRESS" nil nil newline)
     (:place "PLACE" nil org-koma-letter-place)
     (:opening "OPENING" nil org-koma-letter-opening)
     (:closing "CLOSING" nil org-koma-letter-closing)
     (:signature "SIGNATURE" nil org-koma-letter-signature newline)
-
+    (:special-tags nil nil
+		   (append org-koma-letter-special-tags-after-closing
+			   org-koma-letter-special-tags-after-letter))
+    (:with-after-closing nil "after-closing-order"
+			 org-koma-letter-special-tags-after-closing)
+    (:with-after-letter nil "after-letter-order"
+			org-koma-letter-special-tags-after-letter)
     (:with-backaddress nil "backaddress" org-koma-letter-use-backaddress)
     (:with-foldmarks nil "foldmarks" org-koma-letter-use-foldmarks)
     (:with-phone nil "phone" org-koma-letter-use-phone)
     (:with-email nil "email" org-koma-letter-use-email)
     (:with-place nil "place" org-koma-letter-use-place)
-    (:with-subject nil "subject" org-koma-letter-use-subject))
+    (:with-subject nil "subject" org-koma-letter-subject-format))
   :translate-alist '((export-block . org-koma-letter-export-block)
 		     (export-snippet . org-koma-letter-export-snippet)
+		     (headline . org-koma-letter-headline)
 		     (keyword . org-koma-letter-keyword)
 		     (template . org-koma-letter-template))
   :menu-entry
@@ -184,6 +253,59 @@ Use `foldmarks:true' to activate default fold marks or
 		(org-open-file (org-koma-letter-export-to-pdf nil s v b))))))))
 
 
+;;; Helper functions
+
+(defun org-koma-letter-email ()
+  "Return the current `user-mail-address'"
+  user-mail-address)
+
+;; The following is taken from/inspired by ox-grof.el
+;; Thanks, Luis!
+
+(defun org-koma-letter--get-tagged-contents (tag)
+  "Get tagged content from `org-koma-letter-special-contents'"
+  (cdr (assoc tag org-koma-letter-special-contents)))
+
+(defun org-koma-letter--get-custom (value)
+  "Determines whether a value is nil, a string or a
+function (a symobl).  If it is a function it it evaluates it."
+  (when value
+    (cond ((stringp value) value)
+	  ((functionp value) (funcall value))
+	  ((symbolp value) (symbol-name value)))))
+
+
+(defun org-koma-letter--prepare-special-contents-as-macro (a-list &optional keep-newlines no-tag)
+  "Finds all the components of `org-koma-letter-special-contents'
+corresponding to members of the `a-list' and return them as a
+string to be formatted.  The function is used for inserting
+content of speciall headings such as PS.
+
+If keep-newlines is t newlines will not be removed.  If no-tag is
+is t the content in `org-koma-letter-special-contents' will not
+be wrapped in a macro named whatever the members of a-list are called.
+"
+  (let (output)
+    (dolist (ac a-list output)
+      (let
+	  ((x (org-koma-letter--get-tagged-contents ac))
+	   (regexp (if keep-newlines "" "\\`\n+\\|\n*\\'")))
+	(when x
+	  (setq output
+		(concat
+		 output "\n"
+		 ;; sometimes LaTeX complains about newlines
+		 ;; at the end or beginning of macros.  Remove them.
+		 (org-koma-letter--format-string-as-macro
+		  (format "%s" (replace-regexp-in-string regexp "" x))
+		  (unless no-tag  ac)))))))))
+
+(defun org-koma-letter--format-string-as-macro (string &optional macro)
+  "If a macro is given format as string as  \"\\macro{string}\" else as \"string\""
+  (if macro
+      (format "\\%s{%s}" macro string)
+    (format "%s" string)))
+
 ;;; Transcode Functions
 
 ;;;; Export Block
@@ -217,12 +339,39 @@ channel."
     (if (equal key "KOMA-LETTER") value
       (org-export-with-backend 'latex keyword contents info))))
 
+
+;; Headline
+
+(defun org-koma-letter-headline (headline contents info)
+  "Transcode a HEADLINE element from Org to LaTeX.
+CONTENTS holds the contents of the headline.  INFO is a plist
+holding contextual information.
+
+Note that if a headline is tagged with a tag from
+`org-koma-letter-special-tags' it will not be exported, but
+stored in `org-koma-letter-special-contents' and included at the
+appropriate place."
+  (let*
+      ((tags (and (plist-get info :with-tags)
+		 (org-export-get-tags headline info)))
+       (tag (downcase (car tags))))
+    (if (member tag (plist-get info :special-tags))
+	(progn
+	  (push (cons tag contents)
+		org-koma-letter-special-contents)
+	  nil)
+      contents)))
+
+
 ;;;; Template
 
 (defun org-koma-letter-template (contents info)
   "Return complete document string after KOMA Scrlttr2 conversion.
 CONTENTS is the transcoded contents string.  INFO is a plist
 holding export options."
+  ;; FIXME: instead of setq'ing org-koma-letter-special-contents and
+  ;; callying varioues stuff it might be nice to put a big let* around the templace
+  ;; as in org-groff...
   (concat
    ;; Time-stamp.
    (and (plist-get info :time-stamp-file)
@@ -250,22 +399,22 @@ holding export options."
 		     (plist-get info :latex-header-extra))))
            info)))))
    (let ((lco (plist-get info :lco))
-	 (sender (plist-get info :sender))
+	 (author (plist-get info :author))
 	 (from-address (plist-get info :from-address))
 	 (phone-number (plist-get info :phone-number))
 	 (email (plist-get info :email))
 	 (signature (plist-get info :signature)))
      (concat
       ;; Letter Class Option File
-      (when lco 
+      (when lco
 	(let ((lco-files (split-string lco " "))
 	      (lco-def ""))
 	  (dolist (lco-file lco-files lco-def)
 	    (setq lco-def (format "%s\\LoadLetterOption{%s}\n" lco-def lco-file)))
 	  lco-def))
       ;; Define "From" data.
-      (when sender (format "\\setkomavar{fromname}{%s}\n"
-			   (org-export-data sender info)))
+      (when author (format "\\setkomavar{fromname}{%s}\n"
+			   (org-export-data author info)))
       (when from-address (format "\\setkomavar{fromaddress}{%s}\n" from-address))
       (when phone-number (format "\\setkomavar{fromphone}{%s}\n" phone-number))
       (when email (format "\\setkomavar{fromemail}{%s}\n" email))
@@ -290,12 +439,25 @@ holding export options."
    ;; Document start
    "\\begin{document}\n\n"
    ;; Subject
-   (let ((with-subject (plist-get info :with-subject)))
-     (when with-subject
-       (concat
-	(format "\\KOMAoption{subject}{%s}\n" with-subject)
-	(format "\\setkomavar{subject}{%s}\n\n"
-		(org-export-data (plist-get info :title) info)))))
+   (let* ((with-subject (plist-get info :with-subject))
+	  (subject-format (cond ((member with-subject '("true" "t" t)) nil)
+				((stringp with-subject) (list with-subject))
+				((symbolp with-subject)
+				 (list (symbol-name with-subject)))
+				(t with-subject)))
+	  (subject (org-export-data (plist-get info :title) info))
+	  (l (length subject-format))
+	  (y ""))
+     (concat
+      (when (and with-subject subject-format)
+	(concat
+	 "\\KOMAoption{subject}{"
+	 (apply 'format
+		(dotimes (x l y)
+		  (setq y (concat (if (> x 0) "%s," "%s") y)))
+		subject-format) "}\n"))
+     (when (and subject with-subject)
+       (format "\\setkomavar{subject}{%s}\n\n" subject))))
    ;; Letter start
    (format "\\begin{letter}{%%\n%s}\n\n"
 	   (or (plist-get info :to-address) "no address given"))
@@ -304,10 +466,16 @@ holding export options."
    ;; Letter body.
    contents
    ;; Closing.
-   (format "\n\\closing{%s}\n\n" (plist-get info :closing))
+   (format "\n\\closing{%s}\n" (plist-get info :closing))
+   (org-koma-letter--prepare-special-contents-as-macro
+    (plist-get info :with-after-closing))
    ;; Letter end.
-   "\\end{letter}\n\\end{document}"))
-
+   "\n\\end{letter}\n"
+   (org-koma-letter--prepare-special-contents-as-macro
+    (plist-get info :with-after-letter) t t)
+   ;; Document end.
+   "\n\\end{document}"
+   ))
 
 
 ;;; Commands
@@ -336,7 +504,7 @@ contents of hidden elements.
 When optional argument BODY-ONLY is non-nil, only write code
 between \"\\begin{letter}\" and \"\\end{letter}\".
 
-EXT-PLIST, when provided, is a property list with external
+EXT-PLIST, when provided, is a proeprty list with external
 parameters overriding Org default settings, but still inferior to
 file-local settings.
 
@@ -344,6 +512,7 @@ Export is done in a buffer named \"*Org KOMA-LETTER Export*\".  It
 will be displayed if `org-export-show-temporary-export-buffer' is
 non-nil."
   (interactive)
+  (let (org-koma-letter-special-contents)
   (if async
       (org-export-async-start
 	  (lambda (output)
@@ -360,7 +529,7 @@ non-nil."
 		   subtreep visible-only body-only ext-plist)))
       (with-current-buffer outbuf (LaTeX-mode))
       (when org-export-show-temporary-export-buffer
-	(switch-to-buffer-other-window outbuf)))))
+	(switch-to-buffer-other-window outbuf))))))
 
 ;;;###autoload
 (defun org-koma-letter-export-to-latex
