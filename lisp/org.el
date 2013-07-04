@@ -21067,7 +21067,7 @@ With prefix arg UNCOMPILED, load the uncompiled versions."
 	  (delq 't
 		(mapcar (lambda (f)
 			  (or (org-load-noerror-mustsuffix (concat org-dir f))
-			      (and (string= org-dir contrib-dir)
+			      (and (not (string= org-dir contrib-dir))
 				   (org-load-noerror-mustsuffix (concat contrib-dir f)))
 			      (and (org-load-noerror-mustsuffix (concat (org-find-library-dir f) f))
 				   (add-to-list 'load-uncore f 'append)
