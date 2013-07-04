@@ -48,7 +48,7 @@
 ;;    :base-directory "~/myhomepage/"
 ;;    :base-extension "org"
 ;;    :rss-image-url "http://lumiere.ens.fr/~guerry/images/faces/15.png"
-;;    :home-link-home "http://lumiere.ens.fr/~guerry/"
+;;    :html-link-home "http://lumiere.ens.fr/~guerry/"
 ;;    :rss-extension "xml"
 ;;    :publishing-directory "/home/guerry/public_html/"
 ;;    :publishing-function (org-rss-publish-to-rss)
@@ -213,6 +213,14 @@ is the property list for the given project.  PUB-DIR is the
 publishing directory.
 
 Return output file name."
+  (let ((bf (get-file-buffer filename)))
+    (if bf
+	(with-current-buffer bf
+	  (org-rss-add-pubdate-property)
+	  (write-file filename))
+      (find-file filename)
+      (org-rss-add-pubdate-property)
+      (write-file) (kill-buffer)))
   (org-publish-org-to
    'rss filename (concat "." org-rss-extension) plist pub-dir))
 
@@ -236,12 +244,11 @@ communication channel."
 	   (pubdate
 	    (let ((system-time-locale "C"))
 	      (format-time-string
-	       "%a, %d %h %Y %H:%M:%S %Z"
+	       "%a, %d %h %Y %H:%M:%S %z"
 	       (org-time-string-to-time
 		(or (org-element-property :PUBDATE headline)
 		    (error "Missing PUBDATE property"))))))
-	   (title (org-rss-plain-text
-		   (org-element-property :raw-value headline) info))
+	   (title (org-element-property :raw-value headline))
 	   (publink
 	    (concat
 	     (file-name-as-directory
@@ -305,12 +312,12 @@ as a communication channel."
 (defun org-rss-build-channel-info (info)
   "Build the RSS channel information."
   (let* ((system-time-locale "C")
-	 (title (org-export-data (plist-get info :title) info))
+	 (title (plist-get info :title))
 	 (email (org-export-data (plist-get info :email) info))
 	 (author (and (plist-get info :with-author)
 		      (let ((auth (plist-get info :author)))
 			(and auth (org-export-data auth info)))))
-	 (date (format-time-string "%a, %d %h %Y %H:%M:%S %Z")) ;; RFC 882
+	 (date (format-time-string "%a, %d %h %Y %H:%M:%S %z")) ;; RFC 882
 	 (description (org-export-data (plist-get info :description) info))
 	 (lang (plist-get info :language))
 	 (keywords (plist-get info :keywords))
@@ -332,7 +339,7 @@ as a communication channel."
 <pubDate>%s</pubDate>
 <lastBuildDate>%s</lastBuildDate>
 <generator>%s</generator>
-<webMaster>%s</webMaster>
+<webMaster>%s (%s)</webMaster>
 <image>
 <url>%s</url>
 <title>%s</title>
@@ -344,7 +351,7 @@ as a communication channel."
 		     emacs-major-version
 		     emacs-minor-version)
 	     " Org-mode " (org-version))
-     email image title blogurl)))
+     email author image title blogurl)))
 
 (defun org-rss-section (section contents info)
   "Transcode SECTION element into RSS format.

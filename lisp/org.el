@@ -3814,7 +3814,7 @@ header, or they will be appended."
     (""     "longtable" nil)
     (""     "float"     nil)
     (""     "wrapfig"   nil)
-    (""     "soul"      t)
+    ("normalem" "ulem"  t)
     (""     "textcomp"  t)
     (""     "marvosym"  t)
     (""     "wasysym"   t)
@@ -3837,7 +3837,7 @@ Org mode to function properly:
   symbols used for interpreting the entities in `org-entities'.
   You can skip some of these packages if you don't use any of the
   symbols in it.
-- soul: for underline and strike-through
+- ulem: for underline and strike-through
 - graphicx: for including images
 - float, wrapfig: for figure placement
 - longtable: for long tables
@@ -4306,12 +4306,6 @@ If TABLE-TYPE is non-nil, also check for table.el-type tables."
 	(re-search-forward org-table-any-border-regexp nil 1))))
   (unless quietly (message "Mapping tables: done")))
 
-;; Declare and autoload functions from ox.el and al.
-
-(declare-function org-export-get-environment "ox"
-		  (&optional backend subtreep ext-plist))
-(declare-function org-latex-guess-inputenc "ox-latex" (header))
-
 ;; Declare and autoload functions from org-agenda.el
 
 (eval-and-compile
@@ -4339,8 +4333,8 @@ If TABLE-TYPE is non-nil, also check for table.el-type tables."
 (defvar org-clock-heading ""
   "The heading of the current clock entry.")
 (defun org-clock-is-active ()
-  "Return non-nil if clock is currently running.
-The return value is actually the clock marker."
+  "Return the buffer where the clock is currently running.
+Return nil if no clock is running."
   (marker-buffer org-clock-marker))
 
 (eval-and-compile
@@ -4803,7 +4797,7 @@ Support for group tags is controlled by the option
 	   (if org-group-tags "on" "off")))
 
 (defun org-set-regexps-and-options-for-tags ()
-  "Precompute regular expressions used for tags in the current buffer."
+  "Precompute variables used for tags."
   (when (derived-mode-p 'org-mode)
     (org-set-local 'org-file-tags nil)
     (let ((re (org-make-options-regexp '("FILETAGS" "TAGS")))
@@ -4871,6 +4865,7 @@ Support for group tags is controlled by the option
 	  ;; Return a list with tag variables
 	  (list org-file-tags org-tag-alist org-tag-groups-alist))))))
 
+(defvar org-ota nil)
 (defun org-set-regexps-and-options ()
   "Precompute regular expressions used in the current buffer."
   (when (derived-mode-p 'org-mode)
@@ -4900,10 +4895,11 @@ Support for group tags is controlled by the option
 	  (while
 	      (or (and
 		   ext-setup-or-nil
+		   (not org-ota)
 		   (let (ret)
 		     (with-temp-buffer
 		       (insert ext-setup-or-nil)
-		       (let ((major-mode 'org-mode))
+		       (let ((major-mode 'org-mode) org-ota)
 			 (setq ret (save-match-data
 				     (org-set-regexps-and-options-for-tags)))))
 		     ;; Append setupfile tags to existing tags
@@ -4912,7 +4908,8 @@ Support for group tags is controlled by the option
 			   org-tag-alist
 			   (delq nil (append org-tag-alist (nth 1 ret)))
 			   org-tag-groups-alist
-			   (delq nil (append org-tag-groups-alist (nth 2 ret))))))
+			   (delq nil (append org-tag-groups-alist (nth 2 ret)))
+			   org-ota t)))
 		  (and ext-setup-or-nil
 		       (string-match re ext-setup-or-nil start)
 		       (setq start (match-end 0)))
@@ -5145,8 +5142,8 @@ Support for group tags is controlled by the option
 	    (mapcar (lambda (w) (substring w 0 -1))
 		    (list org-scheduled-string org-deadline-string
 			  org-clock-string org-closed-string)))
-      (org-compute-latex-and-related-regexp)
-      (org-set-font-lock-defaults))))
+      (setq org-ota nil)
+      (org-compute-latex-and-related-regexp))))
 
 (defun org-file-contents (file &optional noerror)
   "Return the contents of FILE, as a string."
@@ -5316,8 +5313,6 @@ The following commands are available:
   (org-set-local 'outline-regexp org-outline-regexp)
   (org-set-local 'outline-level 'org-outline-level)
   (setq bidi-paragraph-direction 'left-to-right)
-  ;; FIXME Circumvent a bug in outline.el (Emacs <24.4)
-  (set (make-local-variable 'paragraph-start) "\\|[ \t]*$\\|\\*+ ")
   (when (and org-ellipsis
              (fboundp 'set-display-table-slot) (boundp 'buffer-display-table)
 	     (fboundp 'make-glyph-code))
@@ -5332,6 +5327,7 @@ The following commands are available:
     (setq buffer-display-table org-display-table))
   (org-set-regexps-and-options-for-tags)
   (org-set-regexps-and-options)
+  (org-set-font-lock-defaults)
   (when (and org-tag-faces (not org-tags-special-faces-re))
     ;; tag faces set outside customize.... force initialization.
     (org-set-tag-faces 'org-tag-faces org-tag-faces))
@@ -6121,8 +6117,15 @@ Use `org-reduced-level' to remove the effect of `org-odd-levels'."
 
 (defvar org-font-lock-keywords nil)
 
+(defsubst org-re-property (property &optional literal)
+  "Return a regexp matching a PROPERTY line.
+Match group 3 will be set to the value if it exists."
+  (concat "^\\(?4:[ \t]*\\)\\(?1::\\(?2:"
+	  (if literal property (regexp-quote property))
+	  "\\):\\)[ \t]+\\(?3:[^ \t\r\n].*?\\)\\(?5:[ \t]*\\)$"))
+
 (defconst org-property-re
-  "^\\(?4:[ \t]*\\)\\(?1::\\(?2:.*?\\):\\)[ \t]+\\(?3:[^ \t\r\n].*?\\)\\(?5:[ \t]*\\)$"
+  (org-re-property ".*?" 'literal)
   "Regular expression matching a property line.
 There are four matching groups:
 1: :PROPKEY: including the leading and trailing colon,
@@ -8190,8 +8193,8 @@ This is a short-hand for marking the subtree and then cutting it."
   (org-copy-subtree n 'cut))
 
 (defun org-copy-subtree (&optional n cut force-store-markers nosubtrees)
-  "Cut the current subtree into the clipboard.
-With prefix arg N, cut this many sequential subtrees.
+  "Copy the current subtree it in the clipboard.
+With prefix arg N, copy this many sequential subtrees.
 This is a short-hand for marking the subtree and then copying it.
 If CUT is non-nil, actually cut the subtree.
 If FORCE-STORE-MARKERS is non-nil, store the relative locations
@@ -11509,7 +11512,6 @@ prefix argument (`C-u C-u C-u C-c C-w')."
 	   (regionp (org-region-active-p))
 	   (region-start (and regionp (region-beginning)))
 	   (region-end (and regionp (region-end)))
-	   (region-length (and regionp (- region-end region-start)))
 	   (filename (buffer-file-name (buffer-base-buffer cbuf)))
 	   pos it nbuf file re level reversed)
       (setq last-command nil)
@@ -11520,7 +11522,9 @@ prefix argument (`C-u C-u C-u C-c C-w')."
 	(unless (or (org-kill-is-subtree-p
 		     (buffer-substring region-start region-end))
 		    (prog1 org-refile-active-region-within-subtree
-		      (org-toggle-heading)))
+		      (let ((s (point-at-eol)))
+			(org-toggle-heading)
+			(setq region-end (+ (- (point-at-eol) s) region-end)))))
 	  (user-error "The region is not a (sequence of) subtree(s)")))
       (if (equal goto '(16))
 	  (org-refile-goto-last-stored)
@@ -11602,8 +11606,7 @@ prefix argument (`C-u C-u C-u C-c C-w')."
 		  (if (not (bolp)) (newline))
 		  (org-paste-subtree level)
 		  (when org-log-refile
-		    (org-add-log-setup 'refile nil nil 'findpos
-				       org-log-refile)
+		    (org-add-log-setup 'refile nil nil 'findpos org-log-refile)
 		    (unless (eq org-log-refile 'note)
 		      (save-excursion (org-add-log-note))))
 		  (and org-auto-align-tags
@@ -11621,8 +11624,10 @@ prefix argument (`C-u C-u C-u C-c C-w')."
 		  (run-hooks 'org-after-refile-insert-hook))))
 	    (unless org-refile-keep
 	      (if regionp
-		  (delete-region (point) (+ (point) region-length))
-		(org-cut-subtree)))
+		  (delete-region (point) (+ (point) (- region-end region-start)))
+		(delete-region
+		 (and (org-back-to-heading t) (point))
+		 (min (buffer-size) (org-end-of-subtree t t) (point)))))
 	    (when (featurep 'org-inlinetask)
 	      (org-inlinetask-remove-END-maybe))
 	    (setq org-markers-to-move nil)
@@ -11960,30 +11965,21 @@ keywords relative to each registered export back-end."
     "TITLE:" "TODO:" "TYP_TODO:" "SELECT_TAGS:" "EXCLUDE_TAGS:"))
 
 (defcustom org-structure-template-alist
-  '(("s" "#+BEGIN_SRC ?\n\n#+END_SRC"
-     "<src lang=\"?\">\n\n</src>")
-    ("e" "#+BEGIN_EXAMPLE\n?\n#+END_EXAMPLE"
-     "<example>\n?\n</example>")
-    ("q" "#+BEGIN_QUOTE\n?\n#+END_QUOTE"
-     "<quote>\n?\n</quote>")
-    ("v" "#+BEGIN_VERSE\n?\n#+END_VERSE"
-     "<verse>\n?\n</verse>")
-    ("V" "#+BEGIN_VERBATIM\n?\n#+END_VERBATIM"
-     "<verbatim>\n?\n</verbatim>")
-    ("c" "#+BEGIN_CENTER\n?\n#+END_CENTER"
-     "<center>\n?\n</center>")
+  '(("s" "#+BEGIN_SRC ?\n\n#+END_SRC" "<src lang=\"?\">\n\n</src>")
+    ("e" "#+BEGIN_EXAMPLE\n?\n#+END_EXAMPLE" "<example>\n?\n</example>")
+    ("q" "#+BEGIN_QUOTE\n?\n#+END_QUOTE" "<quote>\n?\n</quote>")
+    ("v" "#+BEGIN_VERSE\n?\n#+END_VERSE" "<verse>\n?\n</verse>")
+    ("V" "#+BEGIN_VERBATIM\n?\n#+END_VERBATIM" "<verbatim>\n?\n</verbatim>")
+    ("c" "#+BEGIN_CENTER\n?\n#+END_CENTER" "<center>\n?\n</center>")
     ("l" "#+BEGIN_LaTeX\n?\n#+END_LaTeX"
      "<literal style=\"latex\">\n?\n</literal>")
-    ("L" "#+LaTeX: "
-     "<literal style=\"latex\">?</literal>")
+    ("L" "#+LaTeX: " "<literal style=\"latex\">?</literal>")
     ("h" "#+BEGIN_HTML\n?\n#+END_HTML"
      "<literal style=\"html\">\n?\n</literal>")
-    ("H" "#+HTML: "
-     "<literal style=\"html\">?</literal>")
-    ("a" "#+BEGIN_ASCII\n?\n#+END_ASCII")
-    ("A" "#+ASCII: ")
-    ("i" "#+INDEX: ?"
-     "#+INDEX: ?")
+    ("H" "#+HTML: " "<literal style=\"html\">?</literal>")
+    ("a" "#+BEGIN_ASCII\n?\n#+END_ASCII" "")
+    ("A" "#+ASCII: " "")
+    ("i" "#+INDEX: ?" "#+INDEX: ?")
     ("I" "#+INCLUDE: %file ?"
      "<include file=%file markup=\"?\">"))
   "Structure completion elements.
@@ -11998,9 +11994,10 @@ the default when the /org-mtags.el/ module has been loaded.  See also the
 variable `org-mtags-prefer-muse-templates'."
   :group 'org-completion
   :type '(repeat
-	  (string :tag "Key")
-	  (string :tag "Template")
-	  (string :tag "Muse Template")))
+	  (list
+	   (string :tag "Key")
+	   (string :tag "Template")
+	   (string :tag "Muse Template"))))
 
 (defun org-try-structure-completion ()
   "Try to complete a structure template before point.
@@ -13816,7 +13813,6 @@ headlines matching this string."
 			      (abbreviate-file-name
 			       (or (buffer-file-name (buffer-base-buffer))
 				   (buffer-name (buffer-base-buffer)))))))
-	 (case-fold-search nil)
 	 (org-map-continue-from nil)
          lspos tags tags-list
 	 (tags-alist (list (cons 0 org-file-tags)))
@@ -13829,7 +13825,8 @@ headlines matching this string."
       (when (eq action 'sparse-tree)
 	(org-overview)
 	(org-remove-occur-highlights))
-      (while (re-search-forward re nil t)
+      (while (let (case-fold-search)
+	       (re-search-forward re nil t))
 	(setq org-map-continue-from nil)
 	(catch :skip
 	  (setq todo (if (match-end 1) (org-match-string-no-properties 2))
@@ -14182,9 +14179,10 @@ When DOWNCASE is non-nil, expand downcased TAGS."
 	(modify-syntax-entry ?@ "w" stable)
 	(modify-syntax-entry ?_ "w" stable)
 	(while (and tml
-		    (string-match
-		     (concat "\\(?1:[+-]?\\)\\(?2:\\<"
-			     (regexp-opt tml) "\\>\\)") rtnmatch))
+		    (with-syntax-table stable
+		      (string-match
+		       (concat "\\(?1:[+-]?\\)\\(?2:\\<"
+			       (regexp-opt tml) "\\>\\)") rtnmatch)))
 	  (let* ((dir (match-string 1 rtnmatch))
 		 (tag (match-string 2 rtnmatch))
 		 (tag (if downcased (downcase tag) tag)))
@@ -15031,16 +15029,6 @@ Being in this list makes sure that they are offered for completion.")
 	  org-property-end-re "\\)\n?")
   "Matches an entire clock drawer.")
 
-(defsubst org-re-property (property)
-  "Return a regexp matching a PROPERTY line.
-Match group 1 will be set to the value."
-  (concat "^[ \t]*:" (regexp-quote property) ":[ \t]*\\(\\S-.*\\)"))
-
-(defsubst org-re-property-keyword (property)
-  "Return a regexp matching a PROPERTY line, possibly with no
-value for the property."
-  (concat "^[ \t]*:" (regexp-quote property) ":[ \t]*\\(\\S-.*\\)?"))
-
 (defun org-property-action ()
   "Do an action on properties."
   (interactive)
@@ -15300,8 +15288,8 @@ when a \"nil\" value can supersede a non-nil value higher up the hierarchy."
 			   (setq props
 				 (org-update-property-plist
 				  key
-				  (if (match-end 1)
-				      (org-match-string-no-properties 1) "")
+				  (if (match-end 3)
+				      (org-match-string-no-properties 3) "")
 				  props)))))
 		   val)
 	      (goto-char (car range))
@@ -15490,7 +15478,7 @@ and the new value.")
 	  (setq range (org-get-property-block beg end 'force))
 	  (goto-char (car range))
 	  (if (re-search-forward
-	       (org-re-property-keyword property) (cdr range) t)
+	       (org-re-property property) (cdr range) t)
 	      (progn
 		(delete-region (match-beginning 0) (match-end 0))
 		(goto-char (match-beginning 0)))
@@ -15560,7 +15548,7 @@ formats in the current buffer."
       (let ((re (org-re-property key))
 	    values)
 	(while (re-search-forward re nil t)
-	  (add-to-list 'values (org-trim (match-string 1))))
+	  (add-to-list 'values (org-trim (match-string 3))))
 	(delete "" values)))))
 
 (defun org-insert-property-drawer ()
@@ -18509,18 +18497,20 @@ share a good deal of logic."
 
 (declare-function org-export--get-global-options "ox" (&optional backend))
 (declare-function org-export--get-inbuffer-options "ox" (&optional backend))
+(declare-function org-latex-guess-inputenc "ox-latex" (header))
+(declare-function org-latex-guess-babel-language "ox-latex" (header info))
 (defun org-create-formula--latex-header ()
   "Return LaTeX header appropriate for previewing a LaTeX snippet."
-  (org-latex-guess-inputenc
-   (org-splice-latex-header
-    org-format-latex-header
-    org-latex-default-packages-alist
-    org-latex-packages-alist t
-    (plist-get
-     (org-combine-plists
-      (org-export--get-global-options 'latex)
-      (org-export--get-inbuffer-options 'latex))
-     :latex-header))))
+  (let ((info (org-combine-plists (org-export--get-global-options 'latex)
+				  (org-export--get-inbuffer-options 'latex))))
+    (org-latex-guess-babel-language
+     (org-latex-guess-inputenc
+      (org-splice-latex-header
+       org-format-latex-header
+       org-latex-default-packages-alist
+       org-latex-packages-alist t
+       (plist-get info :latex-header)))
+     info)))
 
 ;; This function borrows from Ganesh Swami's latex2png.el
 (defun org-create-formula-image-with-dvipng (string tofile options buffer)
@@ -19059,6 +19049,8 @@ BEG and END default to the buffer boundaries."
 (org-defkey org-mode-map "\C-c\C-k" 'org-kill-note-or-show-branches)
 (org-defkey org-mode-map "\C-c#"    'org-update-statistics-cookies)
 (org-defkey org-mode-map [remap open-line] 'org-open-line)
+(org-defkey org-mode-map [remap forward-paragraph] 'org-forward-element)
+(org-defkey org-mode-map [remap backward-paragraph] 'org-backward-element)
 (org-defkey org-mode-map "\C-m"     'org-return)
 (org-defkey org-mode-map "\C-j"     'org-return-indent)
 (org-defkey org-mode-map "\C-c?"    'org-table-field-info)
@@ -22125,27 +22117,25 @@ hierarchy of headlines by UP levels before marking the subtree."
 ;; `org-setup-filling' installs filling and auto-filling related
 ;; variables during `org-mode' initialization.
 
+(defvar org-element-paragraph-separate) ; org-element.el
 (defun org-setup-filling ()
-  (interactive)
+  (require 'org-element)
   ;; Prevent auto-fill from inserting unwanted new items.
   (when (boundp 'fill-nobreak-predicate)
     (org-set-local
      'fill-nobreak-predicate
      (org-uniquify
       (append fill-nobreak-predicate
-	      '(org-fill-paragraph-separate-nobreak-p
-		org-fill-line-break-nobreak-p
+	      '(org-fill-line-break-nobreak-p
 		org-fill-paragraph-with-timestamp-nobreak-p)))))
+  (let ((paragraph-ending (substring org-element-paragraph-separate 1)))
+    (org-set-local 'paragraph-start paragraph-ending)
+    (org-set-local 'paragraph-separate paragraph-ending))
   (org-set-local 'fill-paragraph-function 'org-fill-paragraph)
   (org-set-local 'auto-fill-inhibit-regexp nil)
   (org-set-local 'adaptive-fill-function 'org-adaptive-fill-function)
   (org-set-local 'normal-auto-fill-function 'org-auto-fill-function)
   (org-set-local 'comment-line-break-function 'org-comment-line-break-function))
-
-(defvar org-element-paragraph-separate) ; org-element.el
-(defun org-fill-paragraph-separate-nobreak-p ()
-  "Non-nil when a new line at point would end current paragraph."
-  (looking-at (substring org-element-paragraph-separate 1)))
 
 (defun org-fill-line-break-nobreak-p ()
   "Non-nil when a new line at point would create an Org line break."
@@ -23597,6 +23587,8 @@ To get rid of the restriction, use \\[org-agenda-remove-restriction-lock]."
     (setq current-prefix-arg nil)
     (org-agenda-maybe-redo)))
 
+(defvar speedbar-file-key-map)
+(declare-function speedbar-add-supported-extension "speedbar" (extension))
 (eval-after-load "speedbar"
   '(progn
      (speedbar-add-supported-extension ".org")
@@ -23670,6 +23662,7 @@ To get rid of the restriction, use \\[org-agenda-remove-restriction-lock]."
        (org-show-context 'bookmark-jump)))
 
 ;; Make session.el ignore our circular variable
+(defvar session-globals-exclude)
 (eval-after-load "session"
   '(add-to-list 'session-globals-exclude 'org-mark-ring))
 

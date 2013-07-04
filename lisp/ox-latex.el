@@ -143,7 +143,9 @@
     ("la" . "latin")
     ("ms" . "malay")
     ("nl" . "dutch")
-    ("no-no" . "nynorsk")
+    ("nb" . "norsk")
+    ("nn" . "nynorsk")
+    ("no" . "norsk")
     ("pl" . "polish")
     ("pt" . "portuguese")
     ("ro" . "romanian")
@@ -255,11 +257,16 @@ to \\providecommand, and then place \\usepackage commands based
 on the content of `org-latex-packages-alist'.
 
 If your header, `org-latex-default-packages-alist' or
-`org-latex-packages-alist' inserts
-\"\\usepackage[AUTO]{inputenc}\", AUTO will automatically be
-replaced with a coding system derived from
-`buffer-file-coding-system'.  See also the variable
+`org-latex-packages-alist' inserts \"\\usepackage[AUTO]{inputenc}\",
+AUTO will automatically be replaced with a coding system derived
+from `buffer-file-coding-system'.  See also the variable
 `org-latex-inputenc-alist' for a way to influence this mechanism.
+
+Likewise, if your header contains \"\\usepackage[AUTO]{babel}\",
+AUTO will be replaced with the language related to the language
+code specified by `org-export-default-language', which see.  Note
+that constructions such as \"\\usepackage[french,AUTO,english]{babel}\"
+are permitted.
 
 The sectioning structure
 ------------------------
@@ -336,7 +343,6 @@ the toc:nil option, not to those generated with #+TOC keyword."
   "Toggle insertion of \\hypersetup{...} in the preamble."
   :group 'org-export-latex
   :type 'boolean)
-
 
 ;;;; Headline
 
@@ -524,8 +530,8 @@ When nil, no transformation is made."
 (defcustom org-latex-text-markup-alist '((bold . "\\textbf{%s}")
 					 (code . verb)
 					 (italic . "\\emph{%s}")
-					 (strike-through . "\\st{%s}")
-					 (underline . "\\ul{%s}")
+					 (strike-through . "\\sout{%s}")
+					 (underline . "\\uline{%s}")
 					 (verbatim . protectedtexttt))
   "Alist of LaTeX expressions to convert text markup.
 
@@ -779,8 +785,12 @@ the infamous egrep/locale bug:
 
      http://lists.gnu.org/archive/html/bug-texinfo/2010-03/msg00031.html
 
-then `texi2dvi' is the superior choice.  Org does offer it as one
-of the customize options.
+then `texi2dvi' is the superior choice as it automates the LaTeX
+build process by calling the \"correct\" combinations of
+auxiliary programs.  Org does offer `texi2dvi' as one of the
+customize options.  Alternatively, `rubber' and `latexmk' also
+provide similar functionality.  The latter supports `biber' out
+of the box.
 
 Alternatively, this may be a Lisp function that does the
 processing, so you could use this to apply the machinery of
@@ -815,9 +825,11 @@ file name as its single argument."
 		  "xelatex -interaction nonstopmode -output-directory %o %f"
 		  "xelatex -interaction nonstopmode -output-directory %o %f"))
 	  (const :tag "texi2dvi"
-		 ("texi2dvi -p -b -c -V %f"))
+		 ("texi2dvi -p -b -V %f"))
 	  (const :tag "rubber"
 		 ("rubber -d --into %o %f"))
+	  (const :tag "latexmk"
+		 ("latexmk -g -pdf %f"))
 	  (function)))
 
 (defcustom org-latex-logfiles-extensions
@@ -870,8 +882,11 @@ For non-floats, see `org-latex--wrap-label'."
 		      (format "\\label{%s}"
 			      (org-export-solidify-link-text label))))
 	 (main (org-export-get-caption element))
-	 (short (org-export-get-caption element t)))
+	 (short (org-export-get-caption element t))
+	 (caption-from-attr-latex (org-export-read-attribute :attr_latex element :caption)))
     (cond
+     ((org-string-nw-p caption-from-attr-latex)
+      (concat caption-from-attr-latex "\n"))
      ((and (not main) (equal label-str "")) "")
      ((not main) (concat label-str "\n"))
      ;; Option caption format with short name.
@@ -910,6 +925,10 @@ Insertion of guessed language only happens when Babel package has
 explicitly been loaded.  Then it is added to the rest of
 package's options.
 
+The argument to Babel may be \"AUTO\" which is then replaced with
+the language of the document or `org-export-default-language'
+unless language in question is already loaded.
+
 Return the new header."
   (let ((language-code (plist-get info :language)))
     ;; If no language is set or Babel package is not loaded, return
@@ -918,16 +937,19 @@ Return the new header."
 	    (not (string-match "\\\\usepackage\\[\\(.*\\)\\]{babel}" header)))
 	header
       (let ((options (save-match-data
-		       (org-split-string (match-string 1 header) ",")))
+		       (org-split-string (match-string 1 header) ",[ \t]*")))
 	    (language (cdr (assoc language-code
 				  org-latex-babel-language-alist))))
-	;; If LANGUAGE is already loaded, return header.  Otherwise,
-	;; append LANGUAGE to other options.
-	(if (member language options) header
-	  (replace-match (mapconcat 'identity
-				    (append options (list language))
-				    ",")
-			 nil nil header 1))))))
+	;; If LANGUAGE is already loaded, return header without AUTO.
+	;; Otherwise, replace AUTO with language or append language if
+	;; AUTO is not present.
+	(replace-match
+	 (mapconcat (lambda (option) (if (equal "AUTO" option) language option))
+		    (cond ((member language options) (delete "AUTO" options))
+			  ((member "AUTO" options) options)
+			  (t (append options (list language))))
+		    ", ")
+	 t nil header 1)))))
 
 (defun org-latex--find-verb-separator (s)
   "Return a character not used in string S.
@@ -1252,55 +1274,6 @@ CONTENTS is nil.  INFO is a plist holding contextual information."
 
 
 ;;;; Footnote Reference
-;;
-;; Footnote reference export is handled by
-;; `org-latex-footnote-reference'.
-;;
-;; Internally, `org-latex--get-footnote-counter' is used to restore
-;; the value of the LaTeX "footnote" counter after a jump due to
-;; a reference to an already defined footnote.  It is only needed in
-;; item tags since the optional argument to \footnotemark is not
-;; allowed there.
-
-(defun org-latex--get-footnote-counter (footnote-reference info)
-  "Return \"footnote\" counter before FOOTNOTE-REFERENCE is encountered.
-INFO is a plist used as a communication channel."
-  ;; Find original counter value by counting number of footnote
-  ;; references appearing for the first time before the current
-  ;; footnote reference.
-  (let* ((label (org-element-property :label footnote-reference))
-	 seen-refs
-	 search-ref			; For byte-compiler.
-	 (search-ref
-	  (function
-	   (lambda (data)
-	     ;; Search footnote references through DATA, filling
-	     ;; SEEN-REFS along the way.
-	     (org-element-map data 'footnote-reference
-	       (lambda (fn)
-		 (let ((fn-lbl (org-element-property :label fn)))
-		   (cond
-		    ;; Anonymous footnote match: return number.
-		    ((eq fn footnote-reference) (length seen-refs))
-		    ;; Anonymous footnote: it's always a new one.
-		    ;; Also, be sure to return nil from the `cond' so
-		    ;; `first-match' doesn't get us out of the loop.
-		    ((not fn-lbl) (push 'inline seen-refs) nil)
-		    ;; Label not seen so far: add it so SEEN-REFS.
-		    ;;
-		    ;; Also search for subsequent references in
-		    ;; footnote definition so numbering follows
-		    ;; reading logic.  Note that we don't care about
-		    ;; inline definitions, since `org-element-map'
-		    ;; already traverses them at the right time.
-		    ((not (member fn-lbl seen-refs))
-		     (push fn-lbl seen-refs)
-		     (funcall search-ref
-			      (org-export-get-footnote-definition fn info))))))
-	       ;; Don't enter footnote definitions since it will
-	       ;; happen when their first reference is found.
-	       info 'first-match 'footnote-definition)))))
-    (funcall search-ref (plist-get info :parse-tree))))
 
 (defun org-latex-footnote-reference (footnote-reference contents info)
   "Transcode a FOOTNOTE-REFERENCE element from Org to LaTeX.
@@ -1311,20 +1284,6 @@ CONTENTS is nil.  INFO is a plist holding contextual information."
      (when (eq (org-element-type prev) 'footnote-reference)
        org-latex-footnote-separator))
    (cond
-    ;; Use \footnotemark if reference is within an item's tag.
-    ((eq (org-element-type (org-export-get-parent-element footnote-reference))
-	 'item)
-     (if (org-export-footnote-first-reference-p footnote-reference info)
-	 "\\footnotemark"
-       ;; Since we can't specify footnote number as an optional
-       ;; argument within an item tag, some extra work has to be done
-       ;; when the footnote has already been referenced.  In that
-       ;; case, set footnote counter to the desired number, use the
-       ;; footnotemark, then set counter back to its original value.
-       (format
-	"\\setcounter{footnote}{%s}\\footnotemark\\setcounter{footnote}{%s}"
-	(1- (org-export-get-footnote-number footnote-reference info))
-	(org-latex--get-footnote-counter footnote-reference info))))
     ;; Use \footnotemark if the footnote has already been defined.
     ((not (org-export-footnote-first-reference-p footnote-reference info))
      (format "\\footnotemark[%s]{}"
@@ -1598,7 +1557,7 @@ contextual information."
 		     (trans "$\\boxminus$ ")))
 	 (tag (let ((tag (org-element-property :tag item)))
 		;; Check-boxes must belong to the tag.
-		(and tag (format "[%s] "
+		(and tag (format "[{%s}] "
 				 (concat checkbox
 					 (org-export-data tag info)))))))
     (concat counter "\\item" (or tag (concat " " checkbox))
@@ -1700,7 +1659,9 @@ used as a communication channel."
 		  (cond ((and (not float) (plist-member attr :float)) nil)
 			((string= float "wrap") 'wrap)
 			((string= float "multicolumn") 'multicolumn)
-			((or float (org-element-property :caption parent))
+			((or float
+			     (org-element-property :caption parent)
+			     (org-string-nw-p (plist-get attr :caption)))
 			 'figure))))
 	 (placement
 	  (let ((place (plist-get attr :placement)))
@@ -2378,7 +2339,9 @@ This function assumes TABLE has `org' as its `:type' property and
 			 ((and (not float) (plist-member attr :float)) nil)
 			 ((string= float "sidewaystable") "sidewaystable")
 			 ((string= float "multicolumn") "table*")
-			 ((or float (org-element-property :caption table))
+			 ((or float
+			      (org-element-property :caption table)
+			      (org-string-nw-p (plist-get attr :caption)))
 			  "table")))))
 	 ;; Extract others display options.
 	 (fontsize (let ((font (plist-get attr :font)))

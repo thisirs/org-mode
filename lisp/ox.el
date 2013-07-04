@@ -501,8 +501,9 @@ e.g. \"H:2\"."
 (defcustom org-export-default-language "en"
   "The default language for export and clocktable translations, as a string.
 This may have an association in
-`org-clock-clocktable-language-setup'.  This option can also be
-set with the LANGUAGE keyword."
+`org-clock-clocktable-language-setup',
+`org-export-smart-quotes-alist' and `org-export-dictionary'.
+This option can also be set with the LANGUAGE keyword."
   :group 'org-export-general
   :type '(string :tag "Language"))
 
@@ -4050,7 +4051,8 @@ significant."
 	     (let ((foundp (funcall find-headline path parent)))
 	       (when foundp (throw 'exit foundp))))
 	   (let ((parent-hl (org-export-get-parent-headline link)))
-	     (cons parent-hl (org-export-get-genealogy parent-hl))))
+	     (if (not parent-hl) (list (plist-get info :parse-tree))
+	       (cons parent-hl (org-export-get-genealogy parent-hl)))))
 	  ;; No destination found: return nil.
 	  (and (not match-title-p) (puthash path nil link-cache))))))))
 
@@ -4891,7 +4893,20 @@ Return a list of src-block elements with a caption."
 ;; `org-export-smart-quotes-regexps'.
 
 (defconst org-export-smart-quotes-alist
-  '(("de"
+  '(("da"
+     ;; one may use: »...«, "...", ›...‹, or '...'.
+     ;; http://sproget.dk/raad-og-regler/retskrivningsregler/retskrivningsregler/a7-40-60/a7-58-anforselstegn/
+     ;; LaTeX quotes require Babel!
+     (opening-double-quote :utf-8 "»" :html "&raquo;" :latex ">>"
+			   :texinfo "@guillemetright{}")
+     (closing-double-quote :utf-8 "«" :html "&laquo;" :latex "<<"
+			   :texinfo "@guillemetleft{}")
+     (opening-single-quote :utf-8 "›" :html "&rsaquo;" :latex "\\frq{}"
+			   :texinfo "@guilsinglright{}")
+     (closing-single-quote :utf-8 "‹" :html "&lsaquo;" :latex "\\flq{}"
+			   :texinfo "@guilsingleft{}")
+     (apostrophe :utf-8 "’" :html "&rsquo;"))
+    ("de"
      (opening-double-quote :utf-8 "„" :html "&bdquo;" :latex "\"`"
 			   :texinfo "@quotedblbase{}")
      (closing-double-quote :utf-8 "“" :html "&ldquo;" :latex "\"'"
@@ -4924,7 +4939,42 @@ Return a list of src-block elements with a caption."
 			   :texinfo "@guillemetleft{}@tie{}")
      (closing-single-quote :utf-8 " »" :html "&nbsp;&raquo;" :latex "\\fg{}"
 			   :texinfo "@tie{}@guillemetright{}")
-     (apostrophe :utf-8 "’" :html "&rsquo;")))
+     (apostrophe :utf-8 "’" :html "&rsquo;"))
+    ("no"
+     ;; https://nn.wikipedia.org/wiki/Sitatteikn
+     (opening-double-quote :utf-8 "«" :html "&laquo;" :latex "\\guillemotleft{}"
+			   :texinfo "@guillemetleft{}")
+     (closing-double-quote :utf-8 "»" :html "&raquo;" :latex "\\guillemotright{}"
+			   :texinfo "@guillemetright{}")
+     (opening-single-quote :utf-8 "‘" :html "&lsquo;" :latex "`" :texinfo "`")
+     (closing-single-quote :utf-8 "’" :html "&rsquo;" :latex "'" :texinfo "'")
+     (apostrophe :utf-8 "’" :html "&rsquo;"))
+    ("nb"
+     ;; https://nn.wikipedia.org/wiki/Sitatteikn
+     (opening-double-quote :utf-8 "«" :html "&laquo;" :latex "\\guillemotleft{}"
+			   :texinfo "@guillemetleft{}")
+     (closing-double-quote :utf-8 "»" :html "&raquo;" :latex "\\guillemotright{}"
+			   :texinfo "@guillemetright{}")
+     (opening-single-quote :utf-8 "‘" :html "&lsquo;" :latex "`" :texinfo "`")
+     (closing-single-quote :utf-8 "’" :html "&rsquo;" :latex "'" :texinfo "'")
+     (apostrophe :utf-8 "’" :html "&rsquo;"))
+    ("nn"
+     ;; https://nn.wikipedia.org/wiki/Sitatteikn
+     (opening-double-quote :utf-8 "«" :html "&laquo;" :latex "\\guillemotleft{}"
+			   :texinfo "@guillemetleft{}")
+     (closing-double-quote :utf-8 "»" :html "&raquo;" :latex "\\guillemotright{}"
+			   :texinfo "@guillemetright{}")
+     (opening-single-quote :utf-8 "‘" :html "&lsquo;" :latex "`" :texinfo "`")
+     (closing-single-quote :utf-8 "’" :html "&rsquo;" :latex "'" :texinfo "'")
+     (apostrophe :utf-8 "’" :html "&rsquo;"))
+    ("sv"
+     ;; based on https://sv.wikipedia.org/wiki/Citattecken
+     (opening-double-quote :utf-8 "”" :html "&rdquo;" :latex "’’" :texinfo "’’")
+     (closing-double-quote :utf-8 "”" :html "&rdquo;" :latex "’’" :texinfo "’’")
+     (opening-single-quote :utf-8 "’" :html "&rsquo;" :latex "’" :texinfo "`")
+     (closing-single-quote :utf-8 "’" :html "&rsquo;" :latex "’" :texinfo "'")
+     (apostrophe :utf-8 "’" :html "&rsquo;"))
+    )
   "Smart quotes translations.
 
 Alist whose CAR is a language string and CDR is an alist with
@@ -5213,10 +5263,12 @@ them."
 ;; the dictionary used for the translation.
 
 (defconst org-export-dictionary
-  '(("Author"
+  '(("%e %n: %c"
+     ("fr" :default "%e %n : %c" :html "%e&nbsp;%n&nbsp;: %c"))
+    ("Author"
      ("ca" :default "Autor")
      ("cs" :default "Autor")
-     ("da" :default "Ophavsmand")
+     ("da" :default "Forfatter")
      ("de" :default "Autor")
      ("eo" :html "A&#365;toro")
      ("es" :default "Autor")
@@ -5259,15 +5311,43 @@ them."
      ("zh-CN" :html "&#26085;&#26399;" :utf-8 "日期")
      ("zh-TW" :html "&#26085;&#26399;" :utf-8 "日期"))
     ("Equation"
-     ("fr" :ascii "Equation" :default "Équation"))
-    ("Figure")
+     ("da" :default "Ligning")
+     ("de" :default "Gleichung")
+     ("es" :html "Ecuaci&oacute;n" :default "Ecuación")
+     ("fr" :ascii "Equation" :default "Équation")
+     ("no" :default "Ligning")
+     ("nb" :default "Ligning")
+     ("nn" :default "Likning")
+     ("sv" :default "Ekvation")
+     ("zh-CN" :html "&#26041;&#31243;" :utf-8 "方程"))
+    ("Figure"
+     ("da" :default "Figur")
+     ("de" :default "Abbildung")
+     ("es" :default "Figura")
+     ("ja" :html "&#22259;" :utf-8 "図")
+     ("no" :default "Illustrasjon")
+     ("nb" :default "Illustrasjon")
+     ("nn" :default "Illustrasjon")
+     ("sv" :default "Illustration")
+     ("zh-CN" :html "&#22270;" :utf-8 "图"))
+    ("Figure %d:"
+     ("da" :default "Figur %d")
+     ("de" :default "Abbildung %d:")
+     ("es" :default "Figura %d:")
+     ("fr" :default "Figure %d :" :html "Figure&nbsp;%d&nbsp;:")
+     ("ja" :html "&#22259;%d: " :utf-8 "図%d: ")
+     ("no" :default "Illustrasjon %d")
+     ("nb" :default "Illustrasjon %d")
+     ("nn" :default "Illustrasjon %d")
+     ("sv" :default "Illustration %d")
+     ("zh-CN" :html "&#22270;%d&nbsp;" :utf-8 "图%d "))
     ("Footnotes"
      ("ca" :html "Peus de p&agrave;gina")
      ("cs" :default "Pozn\xe1mky pod carou")
      ("da" :default "Fodnoter")
-     ("de" :html "Fu&szlig;noten")
+     ("de" :html "Fu&szlig;noten" :default "Fußnoten")
      ("eo" :default "Piednotoj")
-     ("es" :html "Pies de p&aacute;gina")
+     ("es" :html "Nota al pie de p&aacute;gina" :default "Nota al pie de página")
      ("fi" :default "Alaviitteet")
      ("fr" :default "Notes de bas de page")
      ("hu" :html "L&aacute;bjegyzet")
@@ -5286,26 +5366,54 @@ them."
      ("zh-CN" :html "&#33050;&#27880;" :utf-8 "脚注")
      ("zh-TW" :html "&#33139;&#35387;" :utf-8 "腳註"))
     ("List of Listings"
-     ("fr" :default "Liste des programmes"))
+     ("da" :default "Programmer")
+     ("de" :default "Programmauflistungsverzeichnis")
+     ("es" :default "Indice de Listados de programas")
+     ("fr" :default "Liste des programmes")
+     ("no" :default "Dataprogrammer")
+     ("nb" :default "Dataprogrammer")
+     ("zh-CN" :html "&#20195;&#30721;&#30446;&#24405;" :utf-8 "代码目录"))
     ("List of Tables"
-     ("fr" :default "Liste des tableaux"))
+     ("da" :default "Tabeller")
+     ("de" :default "Tabellenverzeichnis")
+     ("es" :default "Indice de tablas")
+     ("fr" :default "Liste des tableaux")
+     ("no" :default "Tabeller")
+     ("nb" :default "Tabeller")
+     ("nn" :default "Tabeller")
+     ("sv" :default "Tabeller")
+     ("zh-CN" :html "&#34920;&#26684;&#30446;&#24405;" :utf-8 "表格目录"))
     ("Listing %d:"
-     ("fr"
-      :ascii "Programme %d :" :default "Programme nº %d :"
-      :latin1 "Programme %d :"))
-    ("Listing %d: %s"
-     ("fr"
-      :ascii "Programme %d : %s" :default "Programme nº %d : %s"
-      :latin1 "Programme %d : %s"))
+     ("da" :default "Program %d")
+     ("de" :default "Programmlisting %d")
+     ("es" :default "Listado de programa %d")
+     ("fr" :default "Programme %d :" :html "Programme&nbsp;%d&nbsp;:")
+     ("no" :default "Dataprogram")
+     ("nb" :default "Dataprogram")
+     ("zh-CN" :html "&#20195;&#30721;%d&nbsp;" :utf-8 "代码%d "))
     ("See section %s"
-     ("fr" :default "cf. section %s"))
+     ("da" :default "jævnfør afsnit %s")
+     ("de" :default "siehe Abschnitt %s")
+     ("es" :default "vea seccion %s")
+     ("fr" :default "cf. section %s")
+     ("zh-CN" :html "&#21442;&#35265;&#31532;%d&#33410;" :utf-8 "参见第%s节"))
+    ("Table"
+     ("de" :default "Tabelle")
+     ("es" :default "Tabla")
+     ("fr" :default "Tableau")
+     ("ja" :html "&#34920;" :utf-8 "表")
+     ("zh-CN" :html "&#34920;" :utf-8 "表"))
     ("Table %d:"
-     ("fr"
-      :ascii "Tableau %d :" :default "Tableau nº %d :" :latin1 "Tableau %d :"))
-    ("Table %d: %s"
-     ("fr"
-      :ascii "Tableau %d : %s" :default "Tableau nº %d : %s"
-      :latin1 "Tableau %d : %s"))
+     ("da" :default "Tabel %d")
+     ("de" :default "Tabelle %d")
+     ("es" :default "Tabla %d")
+     ("fr" :default "Tableau %d :")
+     ("ja" :html "&#34920;%d:" :utf-8 "表%d:")
+     ("no" :default "Tabell %d")
+     ("nb" :default "Tabell %d")
+     ("nn" :default "Tabell %d")
+     ("sv" :default "Tabell %d")
+     ("zh-CN" :html "&#34920;%d&nbsp;" :utf-8 "表%d "))
     ("Table of Contents"
      ("ca" :html "&Iacute;ndex")
      ("cs" :default "Obsah")
@@ -5331,7 +5439,11 @@ them."
      ("zh-CN" :html "&#30446;&#24405;" :utf-8 "目录")
      ("zh-TW" :html "&#30446;&#37636;" :utf-8 "目錄"))
     ("Unknown reference"
-     ("fr" :ascii "Destination inconnue" :default "Référence inconnue")))
+     ("da" :default "ukendt reference")
+     ("de" :default "Unbekannter Verweis")
+     ("es" :default "referencia desconocida")
+     ("fr" :ascii "Destination inconnue" :default "Référence inconnue")
+     ("zh-CN" :html "&#26410;&#30693;&#24341;&#29992;" :utf-8 "未知引用")))
   "Dictionary for export engine.
 
 Alist whose CAR is the string to translate and CDR is an alist
