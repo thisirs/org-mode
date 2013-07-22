@@ -619,6 +619,7 @@ in order to mimic default behaviour:
 
 (defcustom org-latex-listings nil
   "Non-nil means export source code using the listings package.
+
 This package will fontify source code, possibly even with color.
 If you want to use this, you also need to make LaTeX use the
 listings package, and if you want to have color, the color
@@ -626,8 +627,8 @@ package.  Just add these to `org-latex-packages-alist', for
 example using customize, or with something like:
 
   \(require 'ox-latex)
-  \(add-to-list 'org-latex-packages-alist '\(\"\" \"listings\"))
-  \(add-to-list 'org-latex-packages-alist '\(\"\" \"color\"))
+  \(add-to-list 'org-latex-packages-alist '(\"\" \"listings\"))
+  \(add-to-list 'org-latex-packages-alist '(\"\" \"color\"))
 
 Alternatively,
 
@@ -639,12 +640,18 @@ the minted package to `org-latex-packages-alist', for example
 using customize, or with
 
   \(require 'ox-latex)
-  \(add-to-list 'org-latex-packages-alist '\(\"\" \"minted\"))
+  \(add-to-list 'org-latex-packages-alist '(\"\" \"minted\"))
 
 In addition, it is necessary to install pygments
 \(http://pygments.org), and to configure the variable
 `org-latex-pdf-process' so that the -shell-escape option is
-passed to pdflatex."
+passed to pdflatex.
+
+The minted choice has possible repercussions on the preview of
+latex fragments (see `org-preview-latex-fragment').  If you run
+into previewing problems, please consult
+
+  http://orgmode.org/worg/org-tutorials/org-latex-preview.html"
   :group 'org-export-latex
   :type '(choice
 	  (const :tag "Use listings" t)
@@ -1070,27 +1077,28 @@ holding export options."
      (and (plist-get info :time-stamp-file)
 	  (format-time-string "%% Created %Y-%m-%d %a %H:%M\n"))
      ;; Document class and packages.
-     (let ((class (plist-get info :latex-class))
-	   (class-options (plist-get info :latex-class-options)))
-       (org-element-normalize-string
-	(let* ((header (nth 1 (assoc class org-latex-classes)))
-	       (document-class-string
-		(and (stringp header)
-		     (if (not class-options) header
-		       (replace-regexp-in-string
-			"^[ \t]*\\\\documentclass\\(\\(\\[[^]]*\\]\\)?\\)"
-			class-options header t nil 1)))))
-	  (if (not document-class-string)
-	      (user-error "Unknown LaTeX class `%s'" class)
-	    (org-latex-guess-babel-language
-	     (org-latex-guess-inputenc
-	      (org-splice-latex-header
-	       document-class-string
-	       org-latex-default-packages-alist
-	       org-latex-packages-alist nil
-	       (concat (plist-get info :latex-header)
-		       (plist-get info :latex-header-extra))))
-	     info)))))
+     (let* ((class (plist-get info :latex-class))
+	    (class-options (plist-get info :latex-class-options))
+	    (header (nth 1 (assoc class org-latex-classes)))
+	    (document-class-string
+	     (and (stringp header)
+		  (if (not class-options) header
+		    (replace-regexp-in-string
+		     "^[ \t]*\\\\documentclass\\(\\(\\[[^]]*\\]\\)?\\)"
+		     class-options header t nil 1)))))
+       (if (not document-class-string)
+	   (user-error "Unknown LaTeX class `%s'" class)
+	 (org-latex-guess-babel-language
+	  (org-latex-guess-inputenc
+	   (org-element-normalize-string
+	    (org-splice-latex-header
+	     document-class-string
+	     org-latex-default-packages-alist
+	     org-latex-packages-alist nil
+	     (concat (org-element-normalize-string
+		      (plist-get info :latex-header))
+		     (plist-get info :latex-header-extra)))))
+	  info)))
      ;; Possibly limit depth for headline numbering.
      (let ((sec-num (plist-get info :section-numbers)))
        (when (integerp sec-num)

@@ -436,8 +436,9 @@ For export specific modules, see also `org-export-backends'."
 	(const :tag "C  wl:                Links to Wanderlust folders/messages" org-wl)
 	(repeat :tag "External packages" :inline t (symbol :tag "Package"))))
 
-(defvar org-export-registered-backends)	; From ox.el
+(defvar org-export--registered-backends) ; From ox.el.
 (declare-function org-export-derived-backend-p "ox" (backend &rest backends))
+(declare-function org-export-backend-name "ox" (backend))
 (defcustom org-export-backends '(ascii html icalendar latex)
   "List of export back-ends that should be always available.
 
@@ -451,30 +452,29 @@ needed.
 
 This variable needs to be set before org.el is loaded.  If you
 need to make a change while Emacs is running, use the customize
-interface or run the following code, where VALUE stands for the
-new value of the variable, after updating it:
+interface or run the following code, where VAL stands for the new
+value of the variable, after updating it:
 
   \(progn
-    \(setq org-export-registered-backends
+    \(setq org-export--registered-backends
           \(org-remove-if-not
            \(lambda (backend)
-             \(or (memq backend val)
-                 \(catch 'parentp
-                   \(mapc
-                    \(lambda (b)
-                      \(and (org-export-derived-backend-p b (car backend))
-                           \(throw 'parentp t)))
-                    val)
-                   nil)))
-           org-export-registered-backends))
-    \(let ((new-list (mapcar 'car org-export-registered-backends)))
+             \(let ((name (org-export-backend-name backend)))
+               \(or (memq name val)
+                   \(catch 'parentp
+                     \(dolist (b val)
+                       \(and (org-export-derived-backend-p b name)
+                            \(throw 'parentp t)))))))
+           org-export--registered-backends))
+    \(let ((new-list (mapcar 'org-export-backend-name
+                            org-export--registered-backends)))
       \(dolist (backend val)
         \(cond
          \((not (load (format \"ox-%s\" backend) t t))
           \(message \"Problems while trying to load export back-end `%s'\"
                    backend))
          \((not (memq backend new-list)) (push backend new-list))))
-      \(set-default var new-list)))
+      \(set-default 'org-export-backends new-list)))
 
 Adding a back-end to this list will also pull the back-end it
 depends on, if any."
@@ -488,21 +488,20 @@ depends on, if any."
 	   ;; Any back-end not required anymore (not present in VAL and not
 	   ;; a parent of any back-end in the new value) is removed from the
 	   ;; list of registered back-ends.
-	   (setq org-export-registered-backends
+	   (setq org-export--registered-backends
 		 (org-remove-if-not
 		  (lambda (backend)
-		    (or (memq backend val)
-			(catch 'parentp
-			  (mapc
-			   (lambda (b)
-			     (and (org-export-derived-backend-p b (car backend))
-				  (throw 'parentp t)))
-			   val)
-			  nil)))
-		  org-export-registered-backends))
+		    (let ((name (org-export-backend-name backend)))
+		      (or (memq name val)
+			  (catch 'parentp
+			    (dolist (b val)
+			      (and (org-export-derived-backend-p b name)
+				   (throw 'parentp t)))))))
+		  org-export--registered-backends))
 	   ;; Now build NEW-LIST of both new back-ends and required
 	   ;; parents.
-	   (let ((new-list (mapcar 'car org-export-registered-backends)))
+	   (let ((new-list (mapcar 'org-export-backend-name
+				   org-export--registered-backends)))
 	     (dolist (backend val)
 	       (cond
 		((not (load (format "ox-%s" backend) t t))
@@ -3765,9 +3764,9 @@ images at the same place."
 \\usepackage[usenames]{color}
 \\usepackage{amsmath}
 \\usepackage[mathscr]{eucal}
-\\pagestyle{empty}             % do not remove
 \[PACKAGES]
 \[DEFAULT-PACKAGES]
+\\pagestyle{empty}             % do not remove
 % The settings below are copied from fullpage.sty
 \\setlength{\\textwidth}{\\paperwidth}
 \\addtolength{\\textwidth}{-3cm}
@@ -4829,41 +4828,50 @@ Support for group tags is controlled by the option
 				(mapcar 'org-add-prop-inherited ftags)))
       (org-set-local 'org-tag-groups-alist nil)
       ;; Process the tags.
-      ;; FIXME
-      (when tags
-	(let (e tgs g)
-	  (while (setq e (pop tags))
-	    (cond
-	     ((equal e "{")
-	      (progn (push '(:startgroup) tgs)
-		     (when (equal (nth 1 tags) ":")
-		       (push (list (replace-regexp-in-string
-				    "(.+)$" "" (nth 0 tags)))
-			     org-tag-groups-alist)
-		       (setq g 0))))
-	     ((equal e ":") (push '(:grouptags) tgs))
-	     ((equal e "}") (push '(:endgroup) tgs) (if g (setq g nil)))
-	     ((equal e "\\n") (push '(:newline) tgs))
-	     ((string-match (org-re "^\\([[:alnum:]_@#%]+\\)(\\(.\\))$") e)
-	      (push (cons (match-string 1 e)
-			  (string-to-char (match-string 2 e))) tgs)
+      (when (and (not tags) org-tag-alist)
+	(setq tags
+	      (mapcar 
+	       (lambda (tg) (cond ((eq (car tg) :startgroup) "{")
+				  ((eq (car tg) :endgroup) "}")
+				  ((eq (car tg) :grouptags) ":")
+				  ((eq (car tg) :newline) "\n")
+				  (t (concat (car tg)
+					     (if (characterp (cdr tg))
+						 (format "(%s)" (char-to-string (cdr tg))) "")))))
+	       org-tag-alist)))
+      (let (e tgs g)
+	(while (setq e (pop tags))
+	  (cond
+	   ((equal e "{")
+	    (progn (push '(:startgroup) tgs)
+		   (when (equal (nth 1 tags) ":")
+		     (push (list (replace-regexp-in-string
+				  "(.+)$" "" (nth 0 tags)))
+			   org-tag-groups-alist)
+		     (setq g 0))))
+	   ((equal e ":") (push '(:grouptags) tgs))
+	   ((equal e "}") (push '(:endgroup) tgs) (if g (setq g nil)))
+	   ((equal e "\\n") (push '(:newline) tgs))
+	   ((string-match (org-re "^\\([[:alnum:]_@#%]+\\)(\\(.\\))$") e)
+	    (push (cons (match-string 1 e)
+			(string-to-char (match-string 2 e))) tgs)
+	    (if (and g (> g 0))
+		(setcar org-tag-groups-alist
+			(append (car org-tag-groups-alist)
+				(list (match-string 1 e)))))
+	    (if g (setq g (1+ g))))
+	   (t (push (list e) tgs)
 	      (if (and g (> g 0))
 		  (setcar org-tag-groups-alist
-			  (append (car org-tag-groups-alist)
-				  (list (match-string 1 e)))))
-	      (if g (setq g (1+ g))))
-	     (t (push (list e) tgs)
-		(if (and g (> g 0))
-		    (setcar org-tag-groups-alist
-			    (append (car org-tag-groups-alist) (list e))))
-		(if g (setq g (1+ g))))))
-	  (org-set-local 'org-tag-alist nil)
-	  (while (setq e (pop tgs))
-	    (or (and (stringp (car e))
-		     (assoc (car e) org-tag-alist))
-		(push e org-tag-alist)))
-	  ;; Return a list with tag variables
-	  (list org-file-tags org-tag-alist org-tag-groups-alist))))))
+			  (append (car org-tag-groups-alist) (list e))))
+	      (if g (setq g (1+ g))))))
+	(org-set-local 'org-tag-alist nil)
+	(while (setq e (pop tgs))
+	  (or (and (stringp (car e))
+		   (assoc (car e) org-tag-alist))
+	      (push e org-tag-alist)))
+	;; Return a list with tag variables
+	(list org-file-tags org-tag-alist org-tag-groups-alist)))))
 
 (defvar org-ota nil)
 (defun org-set-regexps-and-options ()
@@ -4903,13 +4911,13 @@ Support for group tags is controlled by the option
 			 (setq ret (save-match-data
 				     (org-set-regexps-and-options-for-tags)))))
 		     ;; Append setupfile tags to existing tags
+		     (setq org-ota t)
 		     (setq org-file-tags
 			   (delq nil (append org-file-tags (nth 0 ret)))
 			   org-tag-alist
 			   (delq nil (append org-tag-alist (nth 1 ret)))
 			   org-tag-groups-alist
-			   (delq nil (append org-tag-groups-alist (nth 2 ret)))
-			   org-ota t)))
+			   (delq nil (append org-tag-groups-alist (nth 2 ret))))))
 		  (and ext-setup-or-nil
 		       (string-match re ext-setup-or-nil start)
 		       (setq start (match-end 0)))
@@ -11490,7 +11498,13 @@ and not actually move anything.
 
 With a double prefix arg \\[universal-argument] \\[universal-argument], \
 go to the location where the last refiling operation has put the subtree.
-With a prefix argument of `2', refile to the running clock.
+
+With a numeric prefix argument of `2', refile to the running clock.
+
+With a numeric prefix argument of `3', emulate `org-refile-keep'
+being set to `t' and copy to the target location, don't move it.
+Beware that keeping refiled entries may result in duplicated ID
+properties.
 
 RFLOC can be a refile location obtained in a different way.
 
@@ -11513,6 +11527,7 @@ prefix argument (`C-u C-u C-u C-c C-w')."
 	   (region-start (and regionp (region-beginning)))
 	   (region-end (and regionp (region-end)))
 	   (filename (buffer-file-name (buffer-base-buffer cbuf)))
+	   (org-refile-keep (if (equal goto 3) t org-refile-keep))
 	   pos it nbuf file re level reversed)
       (setq last-command nil)
       (when regionp
@@ -11571,7 +11586,7 @@ prefix argument (`C-u C-u C-u C-c C-w')."
 
 	  (setq nbuf (or (find-buffer-visiting file)
 			 (find-file-noselect file)))
-	  (if goto
+	  (if (and goto (not (equal goto 3)))
 	      (progn
 		(org-pop-to-buffer-same-window nbuf)
 		(goto-char pos)
@@ -11940,22 +11955,21 @@ This function can be used in a hook."
 
 ;;;; Completion
 
+(declare-function org-export-backend-name "org-export" (cl-x))
+(declare-function org-export-backend-options "org-export" (cl-x))
 (defun org-get-export-keywords ()
   "Return a list of all currently understood export keywords.
 Export keywords include options, block names, attributes and
 keywords relative to each registered export back-end."
-  (delq nil
-	(let (keywords)
-	  (mapc
-	   (lambda (back-end)
-	     (let ((props (cdr back-end)))
-	       ;; Back-end name (for keywords, like #+LATEX:)
-	       (push (upcase (symbol-name (car back-end))) keywords)
-	       ;; Back-end options.
-	       (mapc (lambda (option) (push (cadr option) keywords))
-		     (plist-get (cdr back-end) :options-alist))))
-	   (org-bound-and-true-p org-export-registered-backends))
-	  keywords)))
+  (let (keywords)
+    (dolist (backend
+	     (org-bound-and-true-p org-export--registered-backends)
+	     (delq nil keywords))
+      ;; Back-end name (for keywords, like #+LATEX:)
+      (push (upcase (symbol-name (org-export-backend-name backend))) keywords)
+      (dolist (option-entry (org-export-backend-options backend))
+	;; Back-end options.
+	(push (nth 1 option-entry) keywords)))))
 
 (defconst org-options-keywords
   '("ARCHIVE:" "AUTHOR:" "BIND:" "CATEGORY:" "COLUMNS:" "CREATOR:" "DATE:"
@@ -18495,14 +18509,17 @@ share a good deal of logic."
          "Invalid value of `org-latex-create-formula-image-program'")))
    string tofile options buffer))
 
+(declare-function org-export-get-backend "ox" (name))
 (declare-function org-export--get-global-options "ox" (&optional backend))
 (declare-function org-export--get-inbuffer-options "ox" (&optional backend))
 (declare-function org-latex-guess-inputenc "ox-latex" (header))
 (declare-function org-latex-guess-babel-language "ox-latex" (header info))
 (defun org-create-formula--latex-header ()
   "Return LaTeX header appropriate for previewing a LaTeX snippet."
-  (let ((info (org-combine-plists (org-export--get-global-options 'latex)
-				  (org-export--get-inbuffer-options 'latex))))
+  (let ((info (org-combine-plists (org-export--get-global-options
+				   (org-export-get-backend 'latex))
+				  (org-export--get-inbuffer-options
+				   (org-export-get-backend 'latex)))))
     (org-latex-guess-babel-language
      (org-latex-guess-inputenc
       (org-splice-latex-header
@@ -18593,7 +18610,7 @@ share a good deal of logic."
                   (font-height (face-font 'default))
                 (face-attribute 'default :height nil)))
 	 (scale (or (plist-get options (if buffer :scale :html-scale)) 1.0))
-	 (dpi (number-to-string (* scale (floor (* 0.9 (if buffer fnh 140.))))))
+	 (dpi (number-to-string (* scale (floor (if buffer fnh 120.)))))
 	 (fg (or (plist-get options (if buffer :foreground :html-foreground))
 		 "black"))
 	 (bg (or (plist-get options (if buffer :background :html-background))
@@ -22313,20 +22330,41 @@ a footnote definition, try to fill the first paragraph within."
 			 (goto-char (org-element-property :end element))
 			 (re-search-backward "^[ \t]*#\\+end_comment" nil t)
 			 (line-beginning-position))))
-	     (when (and (>= (point) beg) (< (point) end))
+	     (if (or (< (point) beg) (> (point) end)) t
 	       (fill-region-as-paragraph
-		(save-excursion
-		  (end-of-line)
-		  (re-search-backward "^[ \t]*$" beg 'move)
-		  (line-beginning-position))
-		(save-excursion
-		  (beginning-of-line)
-		  (re-search-forward "^[ \t]*$" end 'move)
-		  (line-beginning-position))
-		justify)))
-	   t)
+		(save-excursion (end-of-line)
+				(re-search-backward "^[ \t]*$" beg 'move)
+				(line-beginning-position))
+		(save-excursion (beginning-of-line)
+				(re-search-forward "^[ \t]*$" end 'move)
+				(line-beginning-position))
+		justify))))
 	  ;; Fill comments.
-	  (comment (fill-comment-paragraph justify))
+	  (comment
+	   (let ((begin (org-element-property :post-affiliated element))
+		 (end (org-element-property :end element)))
+	     (when (and (>= (point) begin) (<= (point) end))
+	       (let ((begin (save-excursion
+			      (end-of-line)
+			      (if (re-search-backward "^[ \t]*#[ \t]*$" begin t)
+				  (progn (forward-line) (point))
+				begin)))
+		     (end (save-excursion
+			    (end-of-line)
+			    (if (re-search-forward "^[ \t]*#[ \t]*$" end 'move)
+				(1- (line-beginning-position))
+			      (skip-chars-backward " \r\t\n")
+			      (line-end-position)))))
+		 ;; Do not fill comments when at a blank line or at
+		 ;; affiliated keywords.
+		 (let ((fill-prefix (save-excursion
+				      (beginning-of-line)
+				      (looking-at "[ \t]*#")
+				      (concat (match-string 0) " "))))
+		   (when (> end begin)
+		     (save-excursion
+		       (fill-region-as-paragraph begin end justify))))))
+	     t))
 	  ;; Ignore every other element.
 	  (otherwise t))))))
 
@@ -23208,9 +23246,10 @@ Move to the next element at the same level, when possible."
 	 (let* ((elem (org-element-at-point))
 		(end (org-element-property :end elem))
 		(parent (org-element-property :parent elem)))
-	   (if (and parent (= (org-element-property :contents-end parent) end))
-	       (goto-char (org-element-property :end parent))
-	     (goto-char end))))))
+	   (cond ((and parent (= (org-element-property :contents-end parent) end))
+		  (goto-char (org-element-property :end parent)))
+		 ((integer-or-marker-p end) (goto-char end))
+		 (t (message "No element at point")))))))
 
 (defun org-backward-element ()
   "Move backward by one element.
@@ -23236,6 +23275,7 @@ Move to the previous element at the same level, when possible."
 	   (cond
 	    ;; Move to beginning of current element if point isn't
 	    ;; there already.
+	    ((null beg) (message "No element at point"))
 	    ((/= (point) beg) (goto-char beg))
 	    (prev-elem (goto-char (org-element-property :begin prev-elem)))
 	    ((org-before-first-heading-p) (goto-char (point-min)))

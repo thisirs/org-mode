@@ -1928,9 +1928,13 @@ contents as a string, or nil if it is empty."
 	 (mapcar (lambda (headline)
 		   (cons (org-html--format-toc-headline headline info)
 			 (org-export-get-relative-level headline info)))
-		 (org-export-collect-headlines info depth))))
+		 (org-export-collect-headlines info depth)))
+	(outer-tag (if (and (org-html-html5-p info)
+			    (plist-get info :html-html5-fancy))
+		       "nav"
+		     "div")))
     (when toc-entries
-      (concat "<div id=\"table-of-contents\">\n"
+      (concat (format "<%s id=\"table-of-contents\">\n" outer-tag)
 	      (format "<h%d>%s</h%d>\n"
 		      org-html-toplevel-hlevel
 		      (org-html--translate "Table of Contents" info)
@@ -1938,7 +1942,7 @@ contents as a string, or nil if it is empty."
 	      "<div id=\"text-table-of-contents\">"
 	      (org-html--toc-text toc-entries)
 	      "</div>\n"
-	      "</div>\n"))))
+	      (format "</%s>\n" outer-tag)))))
 
 (defun org-html--toc-text (toc-entries)
   "Return innards of a table of contents, as a string.
@@ -1983,16 +1987,17 @@ INFO is a plist used as a communication channel."
 					   headline-number "-"))))
 	    ;; Body.
 	    (concat section-number
-		    (org-export-data-with-translations
+		    (org-export-data-with-backend
 		     (org-export-get-alt-title headline info)
-		     ;; Ignore any footnote-reference, link,
-		     ;; radio-target and target in table of contents.
-		     (append
-		      '((footnote-reference . ignore)
-			(link . (lambda (link desc i) desc))
-			(radio-target . (lambda (radio desc i) desc))
-			(target . ignore))
-		      (org-export-backend-translate-table 'html))
+		     ;; Create an anonymous back-end that will ignore
+		     ;; any footnote-reference, link, radio-target and
+		     ;; target in table of contents.
+		     (org-export-create-backend
+		      :parent 'html
+		      :transcoders '((footnote-reference . ignore)
+				     (link . (lambda (object c i) c))
+				     (radio-target . (lambda (object c i) c))
+				     (target . ignore)))
 		     info)
 		    (and tags "&#xa0;&#xa0;&#xa0;") (org-html--tags tags)))))
 
@@ -2009,7 +2014,8 @@ of listings as a string, or nil if it is empty."
 		      org-html-toplevel-hlevel)
 	      "<div id=\"text-list-of-listings\">\n<ul>\n"
 	      (let ((count 0)
-		    (initial-fmt (org-html--translate "Listing %d:" info)))
+		    (initial-fmt (format "<span class=\"listing-number\">%s</span>"
+					 (org-html--translate "Listing %d:" info))))
 		(mapconcat
 		 (lambda (entry)
 		   (let ((label (org-element-property :name entry))
@@ -2043,7 +2049,8 @@ of tables as a string, or nil if it is empty."
 		      org-html-toplevel-hlevel)
 	      "<div id=\"text-list-of-tables\">\n<ul>\n"
 	      (let ((count 0)
-		    (initial-fmt (org-html--translate "Table %d:" info)))
+		    (initial-fmt (format "<span class=\"table-number\">%s</span>"
+					 (org-html--translate "Table %d:" info))))
 		(mapconcat
 		 (lambda (entry)
 		   (let ((label (org-element-property :name entry))
@@ -2230,15 +2237,13 @@ holding contextual information."
 	 (headline-label (or (org-element-property :CUSTOM_ID headline)
 			     (concat "sec-" (mapconcat 'number-to-string
 						       headline-number "-"))))
-	 (format-function (cond
-			   ((functionp format-function) format-function)
-			   ((functionp org-html-format-headline-function)
-			    (function*
-			     (lambda (todo todo-type priority text tags
-					   &allow-other-keys)
-			       (funcall org-html-format-headline-function
-					todo todo-type priority text tags))))
-			   (t 'org-html-format-headline))))
+	 (format-function
+	  (cond ((functionp format-function) format-function)
+		((functionp org-html-format-headline-function)
+		 (lambda (todo todo-type priority text tags &rest ignore)
+		   (funcall org-html-format-headline-function
+			    todo todo-type priority text tags)))
+		(t 'org-html-format-headline))))
     (apply format-function
 	   todo todo-type  priority text tags
 	   :headline-label headline-label :level level
@@ -2492,7 +2497,7 @@ CONTENTS is nil.  INFO is a plist holding contextual information."
     (case processing-type
       ((t mathjax)
        (org-html-format-latex latex-frag 'mathjax))
-      (dvipng
+      ((dvipng imagemagick)
        (let ((formula-link (org-html-format-latex latex-frag processing-type)))
 	 (when (and formula-link (string-match "file:\\([^]]*\\)" formula-link))
 	   ;; Do not provide a caption or a name to be consistent with
@@ -2512,7 +2517,7 @@ CONTENTS is nil.  INFO is a plist holding contextual information."
     (case processing-type
       ((t mathjax)
        (org-html-format-latex latex-frag 'mathjax))
-      (dvipng
+      ((dvipng imagemagick)
        (let ((formula-link (org-html-format-latex latex-frag processing-type)))
 	 (when (and formula-link (string-match "file:\\([^]]*\\)" formula-link))
 	   (org-html--format-image (match-string 1 formula-link) nil info))))
@@ -2646,14 +2651,22 @@ INFO is a plist holding contextual information.  See
 							numbers "-"))))))
 		    (t raw-path))))
 	   (t raw-path)))
-	 ;; Extract attributes from parent's paragraph. HACK: Only do
-	 ;; this for the first link in parent.  This is needed as long
-	 ;; as attributes cannot be set on a per link basis.
+	 ;; Extract attributes from parent's paragraph.  HACK: Only do
+	 ;; this for the first link in parent (inner image link for
+	 ;; inline images).  This is needed as long as attributes
+	 ;; cannot be set on a per link basis.
 	 (attributes-plist
-	  (let ((parent (org-export-get-parent-element link)))
+	  (let* ((parent (org-export-get-parent-element link))
+		 (link (let ((container (org-export-get-parent link)))
+			 (if (and (eq (org-element-type container) 'link)
+				  (org-html-inline-image-p link info))
+			     container
+			   link))))
 	    (and (eq (org-element-map parent 'link 'identity info t) link)
 		 (org-export-read-attribute :attr_html parent))))
-	 (attributes (org-html--make-attribute-string attributes-plist))
+	 (attributes
+	  (let ((attr (org-html--make-attribute-string attributes-plist)))
+	    (if (org-string-nw-p attr) (concat " " attr) "")))
 	 protocol)
     (cond
      ;; Image file.
@@ -2790,12 +2803,13 @@ the plist used as a communication channel."
 		    'org-html--has-caption-p))
 	       (if (not (org-string-nw-p raw)) raw
 		 (concat
+                  "<span class=\"figure-number\">"
 		  (format (org-html--translate "Figure %d:" info)
 			  (org-export-get-ordinal
 			   (org-element-map paragraph 'link
 			     'identity info t)
 			   info nil 'org-html-standalone-image-p))
-		  " " raw))))
+		  "</span> " raw))))
 	    (label (org-element-property :name paragraph)))
 	(org-html--wrap-image contents info caption label)))
      ;; Regular paragraph.
@@ -3204,8 +3218,9 @@ contextual information."
 			     "<caption align=\"above\">%s</caption>"
 			   "<caption align=\"bottom\">%s</caption>")
 			 (concat
-			  (format (org-html--translate "Table %d:" info) number)
-			  " " (org-export-data caption info))))
+			  "<span class=\"table-number\">"
+                          (format (org-html--translate "Table %d:" info) number)
+			  "</span> " (org-export-data caption info))))
 	       (funcall table-column-specs table info)
 	       contents)))))
 

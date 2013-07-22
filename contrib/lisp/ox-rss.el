@@ -25,6 +25,8 @@
 ;; This library implements a RSS 2.0 back-end for Org exporter, based on
 ;; the `html' back-end.
 ;;
+;; It requires Emacs 24.1 at least.
+;;
 ;; It provides two commands for export, depending on the desired output:
 ;; `org-rss-export-as-rss' (temporary buffer) and `org-rss-export-to-rss'
 ;; (as a ".xml" file).
@@ -220,7 +222,7 @@ Return output file name."
 	  (write-file filename))
       (find-file filename)
       (org-rss-add-pubdate-property)
-      (write-file) (kill-buffer)))
+      (write-file filename) (kill-buffer)))
   (org-publish-org-to
    'rss filename (concat "." org-rss-extension) plist pub-dir))
 
