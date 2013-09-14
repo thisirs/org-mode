@@ -501,7 +501,13 @@ Some other text
 	    '(("test" "test" nil "test" "test" "test" "test"))))
        (org-test-with-temp-text "\\test"
 	 (org-element-map (org-element-parse-buffer) 'entity 'identity nil t))))
-    "test")))
+    "test"))
+  ;; Special case: entity at the end of a container.
+  (should
+   (eq 'entity
+       (org-test-with-temp-text "*\\alpha \\beta*"
+	 (search-forward "be")
+	 (org-element-type (org-element-context))))))
 
 
 ;;;; Example Block
@@ -754,21 +760,26 @@ Some other text
   "Test `footnote-definition' parser."
   (should
    (org-test-with-temp-text "[fn:1] Definition"
-     (org-element-map
-      (org-element-parse-buffer) 'footnote-definition 'identity nil t)))
+     (org-element-map (org-element-parse-buffer) 'footnote-definition
+       'identity nil t)))
   ;; Footnote with more contents
   (should
    (= 29
       (org-element-property
        :end
        (org-test-with-temp-text "[fn:1] Definition\n\n| a | b |"
-	 (org-element-map
-	  (org-element-parse-buffer)
-	  'footnote-definition 'identity nil t)))))
+	 (org-element-map (org-element-parse-buffer) 'footnote-definition
+	   'identity nil t)))))
   ;; Footnote starting with special syntax.
   (should-not
    (org-test-with-temp-text "[fn:1] - no item"
-     (org-element-map (org-element-parse-buffer) 'item 'identity))))
+     (org-element-map (org-element-parse-buffer) 'item 'identity)))
+  ;; Correctly handle footnote starting with an empty line.
+  (should
+   (= 9
+      (org-test-with-temp-text "[fn:1]\n\n  Body"
+	(org-element-property :contents-begin
+			      (org-element-at-point))))))
 
 
 ;;;; Footnotes Reference.
@@ -1351,7 +1362,7 @@ e^{i\\pi}+1=0
 	  (org-test-with-temp-text
 	      "#+LINK: orgmode http://www.orgmode.org/\n[[orgmode:#docs]]"
 	    (progn (org-mode-restart)
-		   (goto-char (point-max))
+		   (goto-char (1- (point-max)))
 		   (org-element-property :type (org-element-context))))))
   ;; Link abbreviation in a secondary string.
   (should
@@ -2813,6 +2824,12 @@ Paragraph \\alpha."
 	 (progn (search-forward "A")
 		(org-element-type
 		 (org-element-property :parent (org-element-at-point)))))))
+  ;; Special case: at a blank line just below a headline, return that
+  ;; headline.
+  (should
+   (equal "H1" (org-test-with-temp-text "* H1\n  \n* H2\n"
+		 (forward-line)
+		 (org-element-property :title (org-element-at-point)))))
   ;; Special case: at the very beginning of a table, return `table'
   ;; object instead of `table-row'.
   (should

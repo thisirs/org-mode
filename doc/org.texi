@@ -741,7 +741,7 @@ Miscellaneous
 * Clean view::                  Getting rid of leading stars in the outline
 * TTY keys::                    Using Org on a tty
 * Interaction::                 Other Emacs packages
-* org-crypt.el::                Encrypting Org files
+* org-crypt::                   Encrypting Org files
 
 Interaction with other packages
 
@@ -8642,6 +8642,7 @@ Delete other windows.
 @c
 @orgcmdkskc{v d,d,org-agenda-day-view}
 @xorgcmdkskc{v w,w,org-agenda-week-view}
+@xorgcmd{v t,org-agenda-fortnight-view}
 @xorgcmd{v m,org-agenda-month-view}
 @xorgcmd{v y,org-agenda-year-view}
 @xorgcmd{v SPC,org-agenda-reset-view}
@@ -9592,9 +9593,9 @@ If this line does not exist, the title will be the name of the file
 associated to buffer, without extension, or the buffer name.
 
 @cindex property, EXPORT_TITLE
-If you are exporting only a subtree by marking is as the region, the heading
-of the subtree will become the title of the document.  If the subtree has a
-property @code{EXPORT_TITLE}, that will take precedence.
+If you are exporting only a subtree, its heading will become the title of the
+document.  If the subtree has a property @code{EXPORT_TITLE}, that will take
+precedence.
 
 @node Headings and sections, Table of contents, Document title, Structural markup elements
 @subheading Headings and sections
@@ -9746,7 +9747,7 @@ may need to restart Emacs.
 @subheading  Horizontal rules
 @cindex horizontal rules, markup rules
 A line consisting of only dashes, and at least 5 of them, will be exported as
-a horizontal line (@samp{<hr/>} in HTML and @code{\hrule} in @LaTeX{}).
+a horizontal line.
 
 @node Comment lines,  , Horizontal rules, Structural markup elements
 @subheading Comment lines
@@ -15552,7 +15553,7 @@ emacs -Q --batch \
 * Clean view::                  Getting rid of leading stars in the outline
 * TTY keys::                    Using Org on a tty
 * Interaction::                 Other Emacs packages
-* org-crypt.el::                Encrypting Org files
+* org-crypt::                   Encrypting Org files
 @end menu
 
 
@@ -16268,7 +16269,7 @@ tty you would rather use @kbd{C-c .} to re-insert the timestamp.
 @end multitable
 
 
-@node Interaction, org-crypt.el, TTY keys, Miscellaneous
+@node Interaction, org-crypt, TTY keys, Miscellaneous
 @section Interaction with other packages
 @cindex packages, interaction with other
 Org lives in the world of GNU Emacs and interacts in various ways
@@ -16414,6 +16415,18 @@ Yes, these are unfortunately more difficult to remember.  If you want
 to have other replacement keys, look at the variable
 @code{org-disputed-keys}.
 
+@item @file{ecomplete.el} by Lars Magne Ingebrigtsen @email{larsi@@gnus.org}
+@cindex @file{ecomplete.el}
+
+Ecomplete provides ``electric'' address completion in address header
+lines in message buffers.  Sadly Orgtbl mode cuts ecompletes power
+supply: No completion happens when Orgtbl mode is enabled in message
+buffers while entering text in address header lines.  If one wants to
+use ecomplete one should @emph{not} follow the advice to automagically
+turn on Orgtbl mode in message buffers (see @ref{Orgtbl mode}), but
+instead---after filling in the message headers---turn on Orgtbl mode
+manually when needed in the messages body.
+
 @item @file{filladapt.el} by Kyle Jones
 @cindex @file{filladapt.el}
 
@@ -16487,9 +16500,11 @@ another key for this command, or override the key in
 (define-key viper-vi-global-user-map "C-c /" 'org-sparse-tree)
 @end lisp
 
+
+
 @end table
 
-@node org-crypt.el,  , Interaction, Miscellaneous
+@node org-crypt,  , Interaction, Miscellaneous
 @section org-crypt.el
 @cindex @file{org-crypt.el}
 @cindex @code{org-decrypt-entry}
@@ -16782,9 +16797,10 @@ can use Org's facilities to edit and structure lists by turning
 @cindex radio tables
 
 To define the location of the target table, you first need to create two
-lines that are comments in the current mode, but contain magic words for
-Orgtbl mode to find.  Orgtbl mode will insert the translated table
-between these lines, replacing whatever was there before.  For example:
+lines that are comments in the current mode, but contain magic words
+@code{BEGIN/END RECEIVE ORGTBL} for Orgtbl mode to find.  Orgtbl mode will
+insert the translated table between these lines, replacing whatever was there
+before.  For example in C mode where comments are between @code{/* ... */}:
 
 @example
 /* BEGIN RECEIVE ORGTBL table_name */
@@ -16858,7 +16874,7 @@ The best way to wrap the source table in @LaTeX{} is to use the
 activated by placing @code{\usepackage@{comment@}} into the document
 header.  Orgtbl mode can insert a radio table skeleton@footnote{By
 default this works only for @LaTeX{}, HTML, and Texinfo.  Configure the
-variable @code{orgtbl-radio-tables} to install templates for other
+variable @code{orgtbl-radio-table-templates} to install templates for other
 modes.}  with the command @kbd{M-x orgtbl-insert-radio-table RET}.  You will
 be prompted for a table name, let's say we use @samp{salesfigures}.  You
 will then get the following template:
@@ -17894,6 +17910,10 @@ them.
 inspired some of the early development, including HTML export.  He also
 asked for a way to narrow wide table columns.
 @item
+@i{Jason Dunsmore} has been maintaining the Org-Mode server at Rackspace for
+severl years now.  He also sponsered the hosting costs unto Rackspace started
+to hos us for free.
+@item
 @i{Thomas S. Dye} contributed documentation on Worg and helped integrating
 the Org-Babel documentation into the manual.
 @item
@@ -18006,6 +18026,8 @@ generation.
 @item
 @i{Martin Pohlack} provided the code snippet to bundle character insertion
 into bundles of 20 for undo.
+@item
+@i{Rackspace.com} is hosting our website for free.  Thank you Rackspace!
 @item
 @i{T.V. Raman} reported bugs and suggested improvements.
 @item

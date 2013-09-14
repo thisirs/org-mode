@@ -4412,19 +4412,21 @@ Return value is the width given by the last width cookie in the
 same column as TABLE-CELL, or nil."
   (let* ((row (org-export-get-parent table-cell))
 	 (table (org-export-get-parent row))
-	 (column (let ((cells (org-element-contents row)))
-		   (- (length cells) (length (memq table-cell cells)))))
+	 (cells (org-element-contents row))
+	 (columns (length cells))
+	 (column (- columns (length (memq table-cell cells))))
 	 (cache (or (plist-get info :table-cell-width-cache)
 		    (plist-get (setq info
 				     (plist-put info :table-cell-width-cache
-						(make-hash-table :test 'equal)))
+						(make-hash-table :test 'eq)))
 			       :table-cell-width-cache)))
-	 (key (cons table column))
-	 (value (gethash key cache 'no-result)))
-    (if (not (eq value 'no-result)) value
+	 (width-vector (or (gethash table cache)
+			   (puthash table (make-vector columns 'empty) cache)))
+	 (value (aref width-vector column)))
+    (if (not (eq value 'empty)) value
       (let (cookie-width)
 	(dolist (row (org-element-contents table)
-		     (puthash key cookie-width cache))
+		     (aset width-vector column cookie-width))
 	  (when (org-export-table-row-is-special-p row info)
 	    ;; In a special row, try to find a width cookie at COLUMN.
 	    (let* ((value (org-element-contents
@@ -4450,16 +4452,21 @@ same column as TABLE-CELL.  If no such cookie is found, a default
 alignment value will be deduced from fraction of numbers in the
 column (see `org-table-number-fraction' for more information).
 Possible values are `left', `right' and `center'."
+  ;; Load `org-table-number-fraction' and `org-table-number-regexp'.
+  (require 'org-table)
   (let* ((row (org-export-get-parent table-cell))
 	 (table (org-export-get-parent row))
-	 (column (let ((cells (org-element-contents row)))
-		   (- (length cells) (length (memq table-cell cells)))))
+	 (cells (org-element-contents row))
+	 (columns (length cells))
+	 (column (- columns (length (memq table-cell cells))))
 	 (cache (or (plist-get info :table-cell-alignment-cache)
 		    (plist-get (setq info
 				     (plist-put info :table-cell-alignment-cache
-						(make-hash-table :test 'equal)))
-			       :table-cell-alignment-cache))))
-    (or (gethash (cons table column) cache)
+						(make-hash-table :test 'eq)))
+			       :table-cell-alignment-cache)))
+	 (align-vector (or (gethash table cache)
+			   (puthash table (make-vector columns nil) cache))))
+    (or (aref align-vector column)
 	(let ((number-cells 0)
 	      (total-cells 0)
 	      cookie-align
@@ -4502,15 +4509,15 @@ Possible values are `left', `right' and `center'."
 		  (incf number-cells))))))
 	  ;; Return value.  Alignment specified by cookies has
 	  ;; precedence over alignment deduced from cell's contents.
-	  (puthash (cons table column)
-		   (cond ((equal cookie-align "l") 'left)
-			 ((equal cookie-align "r") 'right)
-			 ((equal cookie-align "c") 'center)
-			 ((>= (/ (float number-cells) total-cells)
-			      org-table-number-fraction)
-			  'right)
-			 (t 'left))
-		   cache)))))
+	  (aset align-vector
+		column
+		(cond ((equal cookie-align "l") 'left)
+		      ((equal cookie-align "r") 'right)
+		      ((equal cookie-align "c") 'center)
+		      ((>= (/ (float number-cells) total-cells)
+			   org-table-number-fraction)
+		       'right)
+		      (t 'left)))))))
 
 (defun org-export-table-cell-borders (table-cell info)
   "Return TABLE-CELL borders.
@@ -4759,14 +4766,14 @@ information.
 
 Return a list of all exportable headlines as parsed elements.
 Footnote sections, if any, will be ignored."
-  (unless (wholenump n) (setq n (plist-get info :headline-levels)))
-  (org-element-map (plist-get info :parse-tree) 'headline
-    (lambda (headline)
-      (unless (org-element-property :footnote-section-p headline)
-	;; Strip contents from HEADLINE.
-	(let ((relative-level (org-export-get-relative-level headline info)))
-	  (unless (> relative-level n) headline))))
-    info))
+  (let ((limit (plist-get info :headline-levels)))
+    (setq n (if (wholenump n) (min n limit) limit))
+    (org-element-map (plist-get info :parse-tree) 'headline
+      #'(lambda (headline)
+	  (unless (org-element-property :footnote-section-p headline)
+	    (let ((level (org-export-get-relative-level headline info)))
+	      (and (<= level n) headline))))
+      info)))
 
 (defun org-export-collect-elements (type info &optional predicate)
   "Collect referenceable elements of a determined type.
@@ -5544,9 +5551,9 @@ EXT-PLIST are similar to those used in `org-export-as', which
 see.
 
 Optional argument POST-PROCESS is a function which should accept
-no argument.  It is called within the current process, from
-BUFFER, with point at its beginning.  Export back-ends can use it
-to set a major mode there, e.g,
+no argument.  It is always called within the current process,
+from BUFFER, with point at its beginning.  Export back-ends can
+use it to set a major mode there, e.g,
 
   \(defun org-latex-export-as-latex
     \(&optional async subtreep visible-only body-only ext-plist)
@@ -5604,9 +5611,9 @@ EXT-PLIST are similar to those used in `org-export-as', which
 see.
 
 Optional argument POST-PROCESS is called with FILE as its
-argument, in the asynchronous process.  It has to return a file
-name, or nil.  Export back-ends can use this to send the output
-file through additional processing, e.g,
+argument and happens asynchronously when ASYNC is non-nil.  It
+has to return a file name, or nil.  Export back-ends can use this
+to send the output file through additional processing, e.g,
 
   \(defun org-latex-export-to-latex
     \(&optional async subtreep visible-only body-only ext-plist)
