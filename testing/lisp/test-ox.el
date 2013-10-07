@@ -338,6 +338,20 @@ Paragraph"
 	    (let ((org-tags-column 0))
 	      (org-export-as (org-test-default-backend)
 			     nil nil nil '(:select-tags ("exp")))))))
+  ;; If there is an include tag, ignore the section before the first
+  ;; headline, if any.
+  (should
+   (equal "* H1 :exp:\nBody\n"
+	  (org-test-with-temp-text "First section\n* H1 :exp:\nBody"
+	    (let ((org-tags-column 0))
+	      (org-export-as (org-test-default-backend)
+			     nil nil nil '(:select-tags ("exp")))))))
+  (should-not
+   (equal "* H1 :exp:\n"
+	  (org-test-with-temp-text "* H1 :exp:\nBody"
+	    (let ((org-tags-column 0))
+	      (org-export-as (org-test-default-backend)
+			     nil nil nil '(:select-tags ("exp")))))))
   ;; Test mixing include tags and exclude tags.
   (should
    (string-match
@@ -465,6 +479,25 @@ Paragraph"
 	    (org-test-with-temp-text "CLOSED: [2012-04-29 sun. 10:45]"
 	      (org-export-as (org-test-default-backend)
 			     nil nil nil '(:with-planning nil))))))
+  ;; Property Drawers.
+  (should
+   (equal "* H1\n"
+	  (org-test-with-temp-text
+	      "* H1\n  :PROPERTIES:\n  :PROP: value\n  :END:"
+	    (org-export-as (org-test-default-backend)
+			   nil nil nil '(:with-properties nil)))))
+  (should
+   (equal "* H1\n:PROPERTIES:\n:PROP:     value\n:END:\n"
+	  (org-test-with-temp-text
+	      "* H1\n  :PROPERTIES:\n  :PROP: value\n  :END:"
+	    (org-export-as (org-test-default-backend)
+			   nil nil nil '(:with-properties t)))))
+  (should
+   (equal "* H1\n:PROPERTIES:\n:B:        2\n:END:\n"
+	  (org-test-with-temp-text
+	      "* H1\n  :PROPERTIES:\n  :A: 1\n  :B: 2\n:END:"
+	    (org-export-as (org-test-default-backend)
+			   nil nil nil '(:with-properties ("B"))))))
   ;; Statistics cookies.
   (should
    (equal ""
@@ -1082,7 +1115,18 @@ body\n")))
 	      '((plain-text . (lambda (text contents info) "Failure"))))
 	    (org-export-define-backend 'test2
 	      '((plain-text . (lambda (text contents info) "Success"))))
-	    (org-export-with-backend 'test2 "Test")))))
+	    (org-export-with-backend 'test2 "Test"))))
+  ;; Provide correct back-end if transcoder needs to use recursive
+  ;; calls anyway.
+  (should
+   (equal "Success"
+	  (let (org-export--registered-backends)
+	    (org-export-define-backend 'test
+	      '((plain-text . (lambda (bold contents info) "Success"))
+		(headline . (lambda (headline contents info)
+			      (org-export-data
+			       (org-element-property :title headline))))))
+	    (org-export-with-backend 'test "* Test")))))
 
 (ert-deftest test-org-export/data-with-backend ()
   "Test `org-export-data-with-backend' specifications."

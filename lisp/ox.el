@@ -128,6 +128,7 @@
     (:with-latex nil "tex" org-export-with-latex)
     (:with-planning nil "p" org-export-with-planning)
     (:with-priority nil "pri" org-export-with-priority)
+    (:with-properties nil "prop" org-export-with-properties)
     (:with-smart-quotes nil "'" org-export-with-smart-quotes)
     (:with-special-strings nil "-" org-export-with-special-strings)
     (:with-statistics-cookies nil "stat" org-export-with-statistics-cookies)
@@ -396,10 +397,11 @@ This option can also be set on with the CREATOR keyword."
   "Non-nil means export contents of standard drawers.
 
 When t, all drawers are exported.  This may also be a list of
-drawer names to export.  If that list starts with `not', only
-drawers with such names will be ignored.
+drawer names to export, as strings.  If that list starts with
+`not', only drawers with such names will be ignored.
 
-This variable doesn't apply to properties drawers.
+This variable doesn't apply to properties drawers.  See
+`org-export-with-properties' instead.
 
 This option can also be set with the OPTIONS keyword,
 e.g. \"d:nil\"."
@@ -556,6 +558,23 @@ This option can also be set with the OPTIONS keyword,
 e.g. \"pri:t\"."
   :group 'org-export-general
   :type 'boolean)
+
+(defcustom org-export-with-properties nil
+  "Non-nil means export contents of properties drawers.
+
+When t, all properties are exported.  This may also be a list of
+properties to export, as strings.
+
+This option can also be set with the OPTIONS keyword,
+e.g. \"prop:t\"."
+  :group 'org-export-general
+  :version "24.4"
+  :package-version '(Org . "8.3")
+  :type '(choice
+	  (const :tag "All properties" t)
+	  (const :tag "None" nil)
+	  (repeat :tag "Selected properties"
+		  (string :tag "Property name"))))
 
 (defcustom org-export-with-section-numbers t
   "Non-nil means add section numbers to headlines when exporting.
@@ -1955,10 +1974,15 @@ for a footnotes section."
   "Return list of elements and objects to ignore during export.
 DATA is the parse tree to traverse.  OPTIONS is the plist holding
 export options."
-  (let* (ignore
-	 walk-data
+  (let* (walk-data
 	 ;; First find trees containing a select tag, if any.
 	 (selected (org-export--selected-trees data options))
+	 ;; If a select tag is active, also ignore the section before
+	 ;; the first headline, if any.
+	 (ignore (and selected
+		      (let ((first-element (car (org-element-contents data))))
+			(and (eq (org-element-type first-element) 'section)
+			     first-element))))
 	 (walk-data
 	  (lambda (data)
 	    ;; Collect ignored elements or objects into IGNORE-LIST.
@@ -1969,8 +1993,8 @@ export options."
 			 (org-element-property :archivedp data))
 		    ;; If headline is archived but tree below has
 		    ;; to be skipped, add it to ignore list.
-		    (mapc (lambda (e) (push e ignore))
-			  (org-element-contents data))
+		    (dolist (element (org-element-contents data))
+		      (push element ignore))
 		  ;; Move into secondary string, if any.
 		  (let ((sec-prop
 			 (cdr (assq type org-element-secondary-value-alist))))
@@ -2067,7 +2091,14 @@ a tree with a select tag."
 		      (not (eq todo-type with-tasks)))
 		 (and (consp with-tasks) (not (member todo with-tasks))))))))
     ((latex-environment latex-fragment) (not (plist-get options :with-latex)))
+    (node-property
+     (let ((properties-set (plist-get options :with-properties)))
+       (cond ((null properties-set) t)
+	     ((consp properties-set)
+	      (not (member-ignore-case (org-element-property :key blob)
+				       properties-set))))))
     (planning (not (plist-get options :with-planning)))
+    (property-drawer (not (plist-get options :with-properties)))
     (statistics-cookie (not (plist-get options :with-statistics-cookies)))
     (table-cell
      (and (org-export-table-has-special-column-p
@@ -3450,10 +3481,16 @@ the communication channel used for export, as a plist."
   (org-export-barf-if-invalid-backend backend)
   (let ((type (org-element-type data)))
     (if (memq type '(nil org-data)) (error "No foreign transcoder available")
-      (let ((transcoder
-	     (cdr (assq type (org-export-get-all-transcoders backend)))))
-	(if (functionp transcoder) (funcall transcoder data contents info)
-	  (error "No foreign transcoder available"))))))
+      (let* ((all-transcoders (org-export-get-all-transcoders backend))
+	     (transcoder (cdr (assq type all-transcoders))))
+	(if (not (functionp transcoder))
+	    (error "No foreign transcoder available")
+	  (funcall
+	   transcoder data contents
+	   (org-combine-plists
+	    info (list :back-end backend
+		       :translate-alist all-transcoders
+		       :exported-data (make-hash-table :test 'eq :size 401)))))))))
 
 
 ;;;; For Export Snippets
@@ -5218,6 +5255,7 @@ them."
      ("de" :default "Autor")
      ("eo" :html "A&#365;toro")
      ("es" :default "Autor")
+     ("et" :default "Autor")
      ("fi" :html "Tekij&auml;")
      ("fr" :default "Auteur")
      ("hu" :default "Szerz&otilde;")
@@ -5241,6 +5279,7 @@ them."
      ("de" :default "Datum")
      ("eo" :default "Dato")
      ("es" :default "Fecha")
+     ("et" :html "Kuup&#228;ev" :utf-8 "Kuupäev")
      ("fi" :html "P&auml;iv&auml;m&auml;&auml;r&auml;")
      ("hu" :html "D&aacute;tum")
      ("is" :default "Dagsetning")
@@ -5260,6 +5299,7 @@ them."
      ("da" :default "Ligning")
      ("de" :default "Gleichung")
      ("es" :html "Ecuaci&oacute;n" :default "Ecuación")
+     ("et" :html "V&#245;rrand" :utf-8 "Võrrand")
      ("fr" :ascii "Equation" :default "Équation")
      ("no" :default "Ligning")
      ("nb" :default "Ligning")
@@ -5270,6 +5310,7 @@ them."
      ("da" :default "Figur")
      ("de" :default "Abbildung")
      ("es" :default "Figura")
+     ("et" :default "Joonis")
      ("ja" :html "&#22259;" :utf-8 "図")
      ("no" :default "Illustrasjon")
      ("nb" :default "Illustrasjon")
@@ -5280,6 +5321,7 @@ them."
      ("da" :default "Figur %d")
      ("de" :default "Abbildung %d:")
      ("es" :default "Figura %d:")
+     ("et" :default "Joonis %d:")
      ("fr" :default "Figure %d :" :html "Figure&nbsp;%d&nbsp;:")
      ("ja" :html "&#22259;%d: " :utf-8 "図%d: ")
      ("no" :default "Illustrasjon %d")
@@ -5294,6 +5336,7 @@ them."
      ("de" :html "Fu&szlig;noten" :default "Fußnoten")
      ("eo" :default "Piednotoj")
      ("es" :html "Nota al pie de p&aacute;gina" :default "Nota al pie de página")
+     ("et" :html "Allm&#228;rkused" :utf-8 "Allmärkused")
      ("fi" :default "Alaviitteet")
      ("fr" :default "Notes de bas de page")
      ("hu" :html "L&aacute;bjegyzet")
@@ -5315,6 +5358,7 @@ them."
      ("da" :default "Programmer")
      ("de" :default "Programmauflistungsverzeichnis")
      ("es" :default "Indice de Listados de programas")
+     ("et" :default "Loendite nimekiri")
      ("fr" :default "Liste des programmes")
      ("no" :default "Dataprogrammer")
      ("nb" :default "Dataprogrammer")
@@ -5323,6 +5367,7 @@ them."
      ("da" :default "Tabeller")
      ("de" :default "Tabellenverzeichnis")
      ("es" :default "Indice de tablas")
+     ("et" :default "Tabelite nimekiri")
      ("fr" :default "Liste des tableaux")
      ("no" :default "Tabeller")
      ("nb" :default "Tabeller")
@@ -5333,6 +5378,7 @@ them."
      ("da" :default "Program %d")
      ("de" :default "Programmlisting %d")
      ("es" :default "Listado de programa %d")
+     ("et" :default "Loend %d")
      ("fr" :default "Programme %d :" :html "Programme&nbsp;%d&nbsp;:")
      ("no" :default "Dataprogram")
      ("nb" :default "Dataprogram")
@@ -5341,11 +5387,13 @@ them."
      ("da" :default "jævnfør afsnit %s")
      ("de" :default "siehe Abschnitt %s")
      ("es" :default "vea seccion %s")
+     ("et" :html "Vaata peat&#252;kki %s" :utf-8 "Vaata peatükki %s")
      ("fr" :default "cf. section %s")
      ("zh-CN" :html "&#21442;&#35265;&#31532;%d&#33410;" :utf-8 "参见第%s节"))
     ("Table"
      ("de" :default "Tabelle")
      ("es" :default "Tabla")
+     ("et" :default "Tabel")
      ("fr" :default "Tableau")
      ("ja" :html "&#34920;" :utf-8 "表")
      ("zh-CN" :html "&#34920;" :utf-8 "表"))
@@ -5353,6 +5401,7 @@ them."
      ("da" :default "Tabel %d")
      ("de" :default "Tabelle %d")
      ("es" :default "Tabla %d")
+     ("et" :default "Tabel %d")
      ("fr" :default "Tableau %d :")
      ("ja" :html "&#34920;%d:" :utf-8 "表%d:")
      ("no" :default "Tabell %d")
@@ -5367,6 +5416,7 @@ them."
      ("de" :default "Inhaltsverzeichnis")
      ("eo" :default "Enhavo")
      ("es" :html "&Iacute;ndice")
+     ("et" :default "Sisukord")
      ("fi" :html "Sis&auml;llysluettelo")
      ("fr" :ascii "Sommaire" :default "Table des matières")
      ("hu" :html "Tartalomjegyz&eacute;k")
@@ -5388,6 +5438,7 @@ them."
      ("da" :default "ukendt reference")
      ("de" :default "Unbekannter Verweis")
      ("es" :default "referencia desconocida")
+     ("et" :default "Tundmatu viide")
      ("fr" :ascii "Destination inconnue" :default "Référence inconnue")
      ("zh-CN" :html "&#26410;&#30693;&#24341;&#29992;" :utf-8 "未知引用")))
   "Dictionary for export engine.

@@ -444,13 +444,32 @@ INFO is a plist used as a communication channel."
   "Format HEADLINE as a sectioning part.
 CONTENTS holds the contents of the headline.  INFO is a plist
 used as a communication channel."
-  ;; Use `latex' back-end output, inserting overlay specifications
-  ;; if possible.
-  (let ((latex-headline (org-export-with-backend 'latex headline contents info))
+  (let ((latex-headline
+	 (org-export-with-backend
+	  ;; We create a temporary export back-end which behaves the
+	  ;; same as current one, but adds "\protect" in front of the
+	  ;; output of some objects.
+	  (org-export-create-backend
+	   :parent 'latex
+	   :transcoders
+	   (let ((protected-output
+		  (function
+		   (lambda (object contents info)
+		     (let ((code (org-export-with-backend
+				  'beamer object contents info)))
+		       (if (org-string-nw-p code) (concat "\\protect" code)
+			 code))))))
+	     (mapcar #'(lambda (type) (cons type protected-output))
+		     '(bold footnote-reference italic strike-through timestamp
+			    underline))))
+	  headline
+	  contents
+	  info))
 	(mode-specs (org-element-property :BEAMER_ACT headline)))
     (if (and mode-specs
 	     (string-match "\\`\\\\\\(.*?\\)\\(?:\\*\\|\\[.*\\]\\)?{"
 			   latex-headline))
+	;; Insert overlay specifications.
 	(replace-match (concat (match-string 1 latex-headline)
 			       (format "<%s>" mode-specs))
 		       nil nil latex-headline 1)
@@ -539,12 +558,14 @@ used as a communication channel."
 			 ((not env) "column")
 			 ;; Use specified environment.
 			 (t env))))
-	 (env-format (unless (member environment '("column" "columns"))
-		       (assoc environment
-			      (append org-beamer-environments-special
-				      org-beamer-environments-extra
-				      org-beamer-environments-default))))
 	 (raw-title (org-element-property :raw-value headline))
+	 (env-format
+	  (cond ((member environment '("column" "columns")) nil)
+		((assoc environment
+			(append org-beamer-environments-extra
+				org-beamer-environments-default)))
+		(t (user-error "Wrong block type at a headline named \"%s\""
+			       raw-title))))
 	 (title (org-export-data (org-element-property :title headline) info))
 	 (options (let ((options (org-element-property :BEAMER_OPT headline)))
 		    (if (not options) ""
@@ -589,7 +610,7 @@ used as a communication channel."
 	       (if (equal environment "column") options "")
 	       (format "%s\\textwidth" column-width)))
      ;; Block's opening string.
-     (when env-format
+     (when (nth 2 env-format)
        (concat
 	(org-fill-template
 	 (nth 2 env-format)
@@ -617,8 +638,8 @@ used as a communication channel."
 			    (format "[%s]" raw-title))))))
 	"\n"))
      contents
-     ;; Block's closing string.
-     (when environment (concat (nth 3 env-format) "\n"))
+     ;; Block's closing string, if any.
+     (and (nth 3 env-format) (concat (nth 3 env-format) "\n"))
      (when column-width "\\end{column}\n")
      (when end-columns-p "\\end{columns}"))))
 

@@ -95,6 +95,7 @@
 (declare-function org-unescape-code-in-string "org-src" (s))
 (declare-function org-table-to-lisp "org-table" (&optional txt))
 (declare-function org-reverse-string "org" (string))
+(declare-function org-element-context "org-element" (&optional ELEMENT))
 
 (defgroup org-babel nil
   "Code block evaluation and management in `org-mode' documents."
@@ -478,8 +479,7 @@ specific header arguments as well.")
 
 (defvar org-babel-default-header-args
   '((:session . "none") (:results . "replace") (:exports . "code")
-    (:cache . "no") (:noweb . "no") (:hlines . "no") (:tangle . "no")
-    (:padnewline . "yes"))
+    (:cache . "no") (:noweb . "no") (:hlines . "no") (:tangle . "no"))
   "Default arguments to use when evaluating a source block.")
 
 (defvar org-babel-default-inline-header-args
@@ -770,37 +770,43 @@ arguments and pop open the results in a preview buffer."
     (message "No suspicious header arguments found.")))
 
 ;;;###autoload
-(defun org-babel-insert-header-arg ()
+(defun org-babel-insert-header-arg (&optional header-arg value)
   "Insert a header argument selecting from lists of common args and values."
   (interactive)
-  (let* ((lang (car (org-babel-get-src-block-info 'light)))
+  (let* ((info (org-babel-get-src-block-info 'light))
+	 (lang (car info))
+	 (begin (nth 6 info))
 	 (lang-headers (intern (concat "org-babel-header-args:" lang)))
 	 (headers (org-babel-combine-header-arg-lists
 		   org-babel-common-header-args-w-values
 		   (when (boundp lang-headers) (eval lang-headers))))
-	 (arg (org-icompleting-read
-	       "Header Arg: "
-	       (mapcar
-		(lambda (header-spec) (symbol-name (car header-spec)))
-		headers))))
-    (insert ":" arg)
-    (let ((vals (cdr (assoc (intern arg) headers))))
-      (when vals
-	(insert
-	 " "
-	 (cond
-	  ((eq vals :any)
-	   (read-from-minibuffer "value: "))
-	  ((listp vals)
-	   (mapconcat
-	    (lambda (group)
-	      (let ((arg (org-icompleting-read
-			  "value: "
-			  (cons "default" (mapcar #'symbol-name group)))))
-		(if (and arg (not (string= "default" arg)))
-		    (concat arg " ")
-		  "")))
-	    vals ""))))))))
+	 (header-arg (or header-arg
+			 (org-icompleting-read
+			  "Header Arg: "
+			  (mapcar
+			   (lambda (header-spec) (symbol-name (car header-spec)))
+			   headers))))
+	 (vals (cdr (assoc (intern header-arg) headers)))
+	 (value (or value
+		    (cond
+		     ((eq vals :any)
+		      (read-from-minibuffer "value: "))
+		     ((listp vals)
+		      (mapconcat
+		       (lambda (group)
+			 (let ((arg (org-icompleting-read
+				     "value: "
+				     (cons "default"
+					   (mapcar #'symbol-name group)))))
+			   (if (and arg (not (string= "default" arg)))
+			       (concat arg " ")
+			     "")))
+		       vals ""))))))
+    (save-excursion
+      (goto-char begin)
+      (goto-char (point-at-eol))
+      (unless (= (char-before (point)) ?\ ) (insert " "))
+      (insert ":" header-arg) (when value (insert " " value)))))
 
 ;; Add support for completing-read insertion of header arguments after ":"
 (defun org-babel-header-arg-expand ()
@@ -2159,15 +2165,17 @@ code ---- the results are extracted in the syntax of the source
 	  (set-marker visible-beg nil)
 	  (set-marker visible-end nil))))))
 
-(defun org-babel-remove-result (&optional info)
+(defun org-babel-remove-result (&optional info keep-keyword)
   "Remove the result of the current source block."
   (interactive)
-  (let ((location (org-babel-where-is-src-block-result nil info)) start)
+  (let ((location (org-babel-where-is-src-block-result nil info)))
     (when location
-      (setq start (- location 1))
       (save-excursion
-        (goto-char location) (forward-line 1)
-        (delete-region start (org-babel-result-end))))))
+        (goto-char location)
+	(when (looking-at (concat org-babel-result-regexp ".*$"))
+	  (delete-region
+	   (if keep-keyword (1+ (match-end 0)) (1- (match-beginning 0)))
+	   (progn (forward-line 1) (org-babel-result-end))))))))
 
 (defun org-babel-result-end ()
   "Return the point at the end of the current set of results."
@@ -2678,11 +2686,7 @@ Fixes a bug in `tramp-handle-call-process-region'."
 
 (defun org-babel-local-file-name (file)
   "Return the local name component of FILE."
-  (if (file-remote-p file)
-      (let (localname)
-	(with-parsed-tramp-file-name file nil
-				     localname))
-    file))
+  (or (file-remote-p file 'localname) file))
 
 (defun org-babel-process-file-name (name &optional no-quote-p)
   "Prepare NAME to be used in an external process.
@@ -2692,7 +2696,10 @@ remotely.  The file name is then processed by `expand-file-name'.
 Unless second argument NO-QUOTE-P is non-nil, the file name is
 additionally processed by `shell-quote-argument'"
   ((lambda (f) (if no-quote-p f (shell-quote-argument f)))
-   (expand-file-name (org-babel-local-file-name name))))
+   ;; We must apply `expand-file-name' on the whole filename.  If we
+   ;; would apply it on the local filename only, undesired effects
+   ;; like prepending a drive letter on MS Windows could happen.
+   (org-babel-local-file-name (expand-file-name name))))
 
 (defvar org-babel-temporary-directory)
 (unless (or noninteractive (boundp 'org-babel-temporary-directory))
@@ -2704,6 +2711,11 @@ additionally processed by `shell-quote-argument'"
     "Directory to hold temporary files created to execute code blocks.
 Used by `org-babel-temp-file'.  This directory will be removed on
 Emacs shutdown."))
+
+(defcustom org-babel-remote-temporary-directory "/tmp/"
+  "Directory to hold temporary files on remote hosts."
+  :group 'org-babel
+  :type 'string)
 
 (defmacro org-babel-result-cond (result-params scalar-form &rest table-forms)
   "Call the code to parse raw string results according to RESULT-PARAMS."
@@ -2734,7 +2746,8 @@ of `org-babel-temporary-directory'."
   (if (file-remote-p default-directory)
       (let ((prefix
              (concat (file-remote-p default-directory)
-                     (expand-file-name prefix temporary-file-directory))))
+                     (expand-file-name
+		      prefix org-babel-remote-temporary-directory))))
         (make-temp-file prefix nil suffix))
     (let ((temporary-file-directory
 	   (or (and (boundp 'org-babel-temporary-directory)

@@ -1899,13 +1899,9 @@ single keystroke rather than having to type \"yes\"."
   :type 'regexp)
 
 (defconst org-file-apps-defaults-gnu
-  (append
-   '((remote . emacs))
-   (if (executable-find "xdg-open")
-       '((system . "xdg-open %s")
-	 (t . "xdg-open %s"))
-     '((system . mailcap)
-       (t . mailcap))))
+  '((remote . emacs)
+    (system . mailcap)
+    (t . mailcap))
   "Default file applications on a UNIX or GNU/Linux system.
 See `org-file-apps'.")
 
@@ -3834,6 +3830,7 @@ header, or they will be appended."
     (""     "longtable" nil)
     (""     "float"     nil)
     (""     "wrapfig"   nil)
+    (""     "rotating"  nil)
     ("normalem" "ulem"  t)
     (""     "amsmath"   t)
     (""     "textcomp"  t)
@@ -3851,14 +3848,16 @@ The packages in this list are needed by one part or another of
 Org mode to function properly:
 
 - inputenc, fontenc:  for basic font and character selection
+- fixltx2e: Important patches of LaTeX itself
+- graphicx: for including images
+- longtable: For multipage tables
+- float, wrapfig: for figure placement
+- rotating: for sideways figures and tables
+- ulem: for underline and strike-through
 - amsmath: for subscript and superscript and math environments
 - textcomp, marvosymb, wasysym, amssymb: for various symbols used
   for interpreting the entities in `org-entities'.  You can skip
   some of these packages if you don't use any of their symbols.
-- ulem: for underline and strike-through
-- graphicx: for including images
-- float, wrapfig: for figure placement
-- longtable: for long tables
 - hyperref: for cross references
 
 Therefore you should not modify this variable unless you know
@@ -7623,6 +7622,9 @@ This is important for non-interactive uses of the command."
 	  ;; If we insert after content, move there and clean up whitespace
 	  (when respect-content
 	    (org-end-of-subtree nil t)
+	    (skip-chars-backward " \r\n")
+	    (and (looking-at "[ \t]+") (replace-match ""))
+	    (forward-char 1)
 	    (when (looking-at "^\\*")
 	      (backward-char 1)
 	      (insert "\n")))
@@ -15052,12 +15054,12 @@ Being in this list makes sure that they are offered for completion.")
   "Regular expression matching the first line of a property drawer.")
 
 (defconst org-property-drawer-re
-  (concat "\\(" org-property-start-re "\\)[^\000]*\\("
+  (concat "\\(" org-property-start-re "\\)[^\000]*?\\("
 	  org-property-end-re "\\)\n?")
   "Matches an entire property drawer.")
 
 (defconst org-clock-drawer-re
-  (concat "\\(" org-clock-drawer-start-re "\\)[^\000]*\\("
+  (concat "\\(" org-clock-drawer-start-re "\\)[^\000]*?\\("
 	  org-property-end-re "\\)\n?")
   "Matches an entire clock drawer.")
 
@@ -15609,7 +15611,9 @@ formats in the current buffer."
 	(beginning-of-line 1)))
     (org-skip-over-state-notes)
     (skip-chars-backward " \t\n\r")
-    (if (eq (char-before) ?*) (forward-char 1))
+    (if (and (eq (char-before) ?*) (not (eq (char-after) ?\n)))
+	(forward-char 1))
+    (goto-char (point-at-eol))
     (let ((inhibit-read-only t)) (insert "\n:PROPERTIES:\n:END:"))
     (beginning-of-line 0)
     (org-indent-to-column indent)
@@ -16042,7 +16046,10 @@ If there is already a timestamp at the cursor, it will be
 modified.
 
 With two universal prefix arguments, insert an active timestamp
-with the current time without prompting the user."
+with the current time without prompting the user.
+
+When called from lisp, the timestamp is inactive if INACTIVE is
+non-nil."
   (interactive "P")
   (let* ((ts nil)
 	 (default-time
@@ -16089,7 +16096,7 @@ with the current time without prompting the user."
 			    " " repeater ">"))))
       (message "Timestamp updated"))
      ((equal arg '(16))
-      (org-insert-time-stamp (current-time) t))
+      (org-insert-time-stamp (current-time) t inactive))
      (t
       (setq time (let ((this-command this-command))
 		   (org-read-date arg 'totime nil nil default-time default-input inactive)))
@@ -20215,6 +20222,10 @@ This command does many different things, depending on context:
       (if (save-excursion (beginning-of-line) (looking-at "[ \t]*$"))
 	  (or (run-hook-with-args-until-success 'org-ctrl-c-ctrl-c-final-hook)
 	      (user-error "C-c C-c can do nothing useful at this location"))
+	;; When at a link, act according to the parent instead.
+	(when (eq type 'link)
+	  (setq context (org-element-property :parent context))
+	  (setq type (org-element-type context)))
 	;; For convenience: at the first line of a paragraph on the
 	;; same line as an item, apply function on that item instead.
 	(when (eq type 'paragraph)
@@ -20222,12 +20233,6 @@ This command does many different things, depending on context:
 	    (when (and (eq (org-element-type parent) 'item)
 		       (= (point-at-bol) (org-element-property :begin parent)))
 	      (setq context parent type 'item))))
-	;; When heading text is a link, treat the heading, not the link,
-	;; as the current element
-	(when (eq type 'link)
-	  (let ((parent (org-element-property :parent context)))
-	    (when (and (eq (org-element-type parent) 'headline))
-	      (setq context parent type 'headline))))
 	;; Act according to type of element or object at point.
 	(case type
 	  (clock (org-clock-update-time-maybe))

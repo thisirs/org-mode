@@ -60,8 +60,7 @@ BTEST	= $(BATCH) \
 	  -l testing/org-test.el \
 	  $(foreach ob-lang,$(BTEST_OB_LANGUAGES),$(req-ob-lang)) \
 	  $(foreach req,$(BTEST_EXTRA),$(req-extra)) \
-	  --eval '(setq org-confirm-babel-evaluate nil)' \
-	  -f org-test-run-batch-tests
+	  --eval '(setq org-confirm-babel-evaluate nil)'
 
 # Using emacs in batch mode.
 # BATCH = $(EMACS) -batch -vanilla # XEmacs
@@ -103,7 +102,7 @@ ELC	= $(BATCHL) \
 	  --eval '(batch-byte-compile)'
 
 # How to make a pdf file from a texinfo file
-TEXI2PDF = texi2pdf --batch --clean
+TEXI2PDF = texi2pdf --batch --clean --expand
 
 # How to make a pdf file from a tex file
 PDFTEX = pdftex
