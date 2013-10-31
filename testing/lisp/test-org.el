@@ -392,21 +392,41 @@
      (looking-at "- $")))
   ;; In a drawer and paragraph insert an empty line, in this case above.
   (should
-   (let ((org-drawers '("MYDRAWER")))
-     (org-test-with-temp-text ":MYDRAWER:\na\n:END:"
-       (forward-line)
-       (org-meta-return)
-       (forward-line -1)
-       (looking-at "$"))))
+   (org-test-with-temp-text ":MYDRAWER:\na\n:END:"
+     (forward-line)
+     (org-meta-return)
+     (forward-line -1)
+     (looking-at "$")))
   ;; In a drawer and item insert an item, in this case above.
   (should
-   (let ((org-drawers '("MYDRAWER")))
-     (org-test-with-temp-text ":MYDRAWER:\n- a\n:END:"
-       (forward-line)
-       (org-meta-return)
-       (beginning-of-line)
-       (looking-at "- $")))))
+   (org-test-with-temp-text ":MYDRAWER:\n- a\n:END:"
+     (forward-line)
+     (org-meta-return)
+     (beginning-of-line)
+     (looking-at "- $"))))
 
+(ert-deftest test-org/insert-todo-heading-respect-content ()
+  "Test `org-insert-todo-heading-respect-content' specifications."
+  ;; Create a TODO heading.
+  (should
+   (org-test-with-temp-text "* H1\n Body"
+     (org-insert-todo-heading-respect-content)
+     (nth 2 (org-heading-components))))
+  ;; Add headline after body of current subtree.
+  (should
+   (org-test-with-temp-text "* H1\nBody"
+     (org-insert-todo-heading-respect-content)
+     (eobp)))
+  (should
+   (org-test-with-temp-text "* H1\n** H2\nBody"
+     (org-insert-todo-heading-respect-content)
+     (eobp)))
+  ;; In a list, do not create a new item.
+  (should
+   (org-test-with-temp-text "* H\n- an item\n- another one"
+     (search-forward "an ")
+     (org-insert-todo-heading-respect-content)
+     (and (eobp) (org-at-heading-p)))))
 
 
 
@@ -524,9 +544,11 @@ http://article.gmane.org/gmane.emacs.orgmode/21459/"
   "Escape a URL to pass to `browse-url'."
   (should
    (string=
-    "http://some.host.com/search?q=%22Org%20mode%22"
-    (org-link-escape "http://some.host.com/search?q=\"Org mode\""
-		     org-link-escape-chars-browser))))
+    (concat "http://lists.gnu.org/archive/cgi-bin/namazu.cgi?query="
+	    "%22Release%208.2%22&idxname=emacs-orgmode")
+    (org-link-escape-browser
+     (concat "http://lists.gnu.org/archive/cgi-bin/namazu.cgi?query="
+	     "\"Release 8.2\"&idxname=emacs-orgmode")))))
 
 
 

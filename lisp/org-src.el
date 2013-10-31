@@ -3,7 +3,7 @@
 ;; Copyright (C) 2004-2013 Free Software Foundation, Inc.
 ;;
 ;; Author: Carsten Dominik <carsten at orgmode dot org>
-;;	   Bastien Guerry <bzg AT gnu DOT org>
+;;	   Bastien Guerry <bzg@gnu.org>
 ;;         Dan Davison <davison at stats dot ox dot ac dot uk>
 ;; Keywords: outlines, hypermedia, calendar, wp
 ;; Homepage: http://orgmode.org
@@ -753,14 +753,14 @@ with \",*\", \",#+\", \",,*\" and \",,#+\"."
       (kill-buffer buffer))
     (goto-char beg)
     (when allow-write-back-p
-      (let ((buffer-undo-list t))
-	(delete-region beg (max beg end))
-	(unless (string-match "\\`[ \t]*\\'" code)
-	  (insert code))
-	;; Make sure the overlay stays in place
+      (undo-boundary)
+      (delete-region beg (max beg end))
+      (unless (string-match "\\`[ \t]*\\'" code)
+	(insert code))
+      	;; Make sure the overlay stays in place
 	(when (eq context 'save) (move-overlay ovl beg (point)))
-	(goto-char beg)
-	(if single (just-one-space))))
+      (goto-char beg)
+      (if single (just-one-space)))
     (if (memq t (mapcar (lambda (overlay)
 			  (eq (overlay-get overlay 'invisible)
 			      'org-hide-block))

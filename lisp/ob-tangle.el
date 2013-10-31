@@ -38,6 +38,7 @@
 (declare-function org-back-to-heading "org" (invisible-ok))
 (declare-function org-fill-template "org" (template alist))
 (declare-function org-babel-update-block-body "org" (new-body))
+(declare-function org-up-heading-safe "org" ())
 (declare-function make-directory "files" (dir &optional parents))
 
 (defcustom org-babel-tangle-lang-exts
@@ -53,6 +54,11 @@ then the name of the language is used."
 	  (cons
 	   (string "Language name")
 	   (string "File Extension"))))
+
+(defcustom org-babel-tangle-use-relative-file-links t
+  "Use relative path names in links from tangled source back the Org-mode file."
+  :group 'org-babel-tangle
+  :type 'boolean)
 
 (defcustom org-babel-post-tangle-hook nil
   "Hook run in code files tangled by `org-babel-tangle'."
@@ -174,12 +180,12 @@ used to limit the exported source code blocks by language."
   (run-hooks 'org-babel-pre-tangle-hook)
   ;; Possibly Restrict the buffer to the current code block
   (save-restriction
-    (when (equal arg '(4))
-      (let ((head (org-babel-where-is-src-block-head)))
+    (save-excursion
+      (when (equal arg '(4))
+	(let ((head (org-babel-where-is-src-block-head)))
 	  (if head
 	      (goto-char head)
 	    (user-error "Point is not in a source code block"))))
-    (save-excursion
       (let ((block-counter 0)
 	    (org-babel-default-header-args
 	     (if target-file
@@ -305,8 +311,19 @@ that the appropriate major-mode is set.  SPEC has the form:
 
   \(start-line file link source-name params body comment)"
   (let* ((start-line (nth 0 spec))
-	 (file (nth 1 spec))
-	 (link (nth 2 spec))
+	 (file (if org-babel-tangle-use-relative-file-links
+		   (file-relative-name (nth 1 spec))
+		 (nth 1 spec)))
+	 (link (let ((link (nth 2 spec)))
+		 (if org-babel-tangle-use-relative-file-links
+		     (when (string-match "^\\(file:\\|docview:\\)\\(.*\\)" link)
+		       (let* ((type (match-string 1 link))
+			      (path (match-string 2 link))
+			      (origpath path)
+			      (case-fold-search nil))
+			 (setq path (file-relative-name path))
+			 (concat type path)))
+		   link)))
 	 (source-name (nth 3 spec))
 	 (body (nth 5 spec))
 	 (comment (nth 6 spec))
@@ -340,6 +357,15 @@ that the appropriate major-mode is set.  SPEC has the form:
        (org-fill-template org-babel-tangle-comment-format-end link-data)))))
 
 (defvar org-comment-string) ;; Defined in org.el
+(defun org-babel-under-commented-heading-p ()
+  "Return t if currently under a commented heading."
+  (if (string-match (concat "^" org-comment-string)
+		    (nth 4 (org-heading-components)))
+      t
+    (save-excursion
+      (and (org-up-heading-safe)
+	   (org-babel-under-commented-heading-p)))))
+
 (defun org-babel-tangle-collect-blocks (&optional language tangle-file)
   "Collect source blocks in the current Org-mode file.
 Return an association list of source-code block specifications of
@@ -349,21 +375,21 @@ source code blocks by language.  Optional argument TANGLE-FILE
 can be used to limit the collected code blocks by target file."
   (let ((block-counter 1) (current-heading "") blocks by-lang)
     (org-babel-map-src-blocks (buffer-file-name)
-      (lambda (new-heading)
-	(if (not (string= new-heading current-heading))
-	    (progn
-	      (setq block-counter 1)
-	      (setq current-heading new-heading))
-	  (setq block-counter (+ 1 block-counter))))
-      (replace-regexp-in-string "[ \t]" "-"
-				(condition-case nil
-				    (or (nth 4 (org-heading-components))
-					"(dummy for heading without text)")
-				  (error (buffer-file-name))))
+      ((lambda (new-heading)
+	 (if (not (string= new-heading current-heading))
+	     (progn
+	       (setq block-counter 1)
+	       (setq current-heading new-heading))
+	   (setq block-counter (+ 1 block-counter))))
+       (replace-regexp-in-string "[ \t]" "-"
+				 (condition-case nil
+				     (or (nth 4 (org-heading-components))
+					 "(dummy for heading without text)")
+				   (error (buffer-file-name)))))
       (let* ((info (org-babel-get-src-block-info 'light))
 	     (src-lang (nth 0 info))
 	     (src-tfile (cdr (assoc :tangle (nth 2 info)))))
-        (unless (or (string-match (concat "^" org-comment-string) current-heading)
+        (unless (or (org-babel-under-commented-heading-p)
 		    (string= (cdr (assoc :tangle (nth 2 info))) "no")
 		    (and tangle-file (not (equal tangle-file src-tfile))))
           (unless (and language (not (string= language src-lang)))

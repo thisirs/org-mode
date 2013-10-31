@@ -414,28 +414,24 @@ Paragraph"
   ;; Drawers.
   (should
    (equal ""
-	  (let ((org-drawers '("TEST")))
-	    (org-test-with-temp-text ":TEST:\ncontents\n:END:"
-	      (org-export-as (org-test-default-backend)
-			     nil nil nil '(:with-drawers nil))))))
+	  (org-test-with-temp-text ":TEST:\ncontents\n:END:"
+	    (org-export-as (org-test-default-backend)
+			   nil nil nil '(:with-drawers nil)))))
   (should
    (equal ":TEST:\ncontents\n:END:\n"
-	  (let ((org-drawers '("TEST")))
-	    (org-test-with-temp-text ":TEST:\ncontents\n:END:"
-	      (org-export-as (org-test-default-backend)
-			     nil nil nil '(:with-drawers t))))))
+	  (org-test-with-temp-text ":TEST:\ncontents\n:END:"
+	    (org-export-as (org-test-default-backend)
+			   nil nil nil '(:with-drawers t)))))
   (should
    (equal ":FOO:\nkeep\n:END:\n"
-	  (let ((org-drawers '("FOO" "BAR")))
-	    (org-test-with-temp-text ":FOO:\nkeep\n:END:\n:BAR:\nremove\n:END:"
-	      (org-export-as (org-test-default-backend)
-			     nil nil nil '(:with-drawers ("FOO")))))))
+	  (org-test-with-temp-text ":FOO:\nkeep\n:END:\n:BAR:\nremove\n:END:"
+	    (org-export-as (org-test-default-backend)
+			   nil nil nil '(:with-drawers ("FOO"))))))
   (should
    (equal ":FOO:\nkeep\n:END:\n"
-	  (let ((org-drawers '("FOO" "BAR")))
-	    (org-test-with-temp-text ":FOO:\nkeep\n:END:\n:BAR:\nremove\n:END:"
-	      (org-export-as (org-test-default-backend)
-			     nil nil nil '(:with-drawers (not "BAR")))))))
+	  (org-test-with-temp-text ":FOO:\nkeep\n:END:\n:BAR:\nremove\n:END:"
+	    (org-export-as (org-test-default-backend)
+			   nil nil nil '(:with-drawers (not "BAR"))))))
   ;; Footnotes.
   (should
    (equal "Footnote?"
@@ -1119,14 +1115,22 @@ body\n")))
   ;; Provide correct back-end if transcoder needs to use recursive
   ;; calls anyway.
   (should
-   (equal "Success"
-	  (let (org-export--registered-backends)
-	    (org-export-define-backend 'test
-	      '((plain-text . (lambda (bold contents info) "Success"))
-		(headline . (lambda (headline contents info)
-			      (org-export-data
-			       (org-element-property :title headline))))))
-	    (org-export-with-backend 'test "* Test")))))
+   (equal "Success\n"
+	  (let ((test-back-end
+		 (org-export-create-backend
+		  :transcoders
+		  '((headline . (lambda (headline contents info)
+				  (org-export-data
+				   (org-element-property :title headline)
+				   info)))
+		    (plain-text . (lambda (text info) "Success"))))))
+	    (org-export-string-as
+	     "* Test"
+	     (org-export-create-backend
+	      :transcoders
+	      '((headline . (lambda (headline contents info)
+			      (org-export-with-backend
+			       test-back-end headline contents info))))))))))
 
 (ert-deftest test-org-export/data-with-backend ()
   "Test `org-export-data-with-backend' specifications."

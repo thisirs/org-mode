@@ -343,7 +343,8 @@ the toc:nil option, not to those generated with #+TOC keyword."
 (defcustom org-latex-with-hyperref t
   "Toggle insertion of \\hypersetup{...} in the preamble."
   :group 'org-export-latex
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 ;;;; Headline
 
@@ -488,12 +489,14 @@ When modifying this variable, it may be useful to change
   :type '(choice (const :tag "Table" table)
 		 (const :tag "Matrix" math)
 		 (const :tag "Inline matrix" inline-math)
-		 (const :tag "Verbatim" verbatim)))
+		 (const :tag "Verbatim" verbatim))
+  :safe (lambda (s) (memq s '(table math inline-math verbatim))))
 
 (defcustom org-latex-tables-centered t
   "When non-nil, tables are exported in a center environment."
   :group 'org-export-latex
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defcustom org-latex-tables-booktabs nil
   "When non-nil, display tables in a formal \"booktabs\" style.
@@ -504,13 +507,15 @@ attributes."
   :group 'org-export-latex
   :version "24.4"
   :package-version '(Org . "8.0")
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defcustom org-latex-table-caption-above t
   "When non-nil, place caption string at the beginning of the table.
 Otherwise, place it near the end."
   :group 'org-export-latex
-  :type 'boolean)
+  :type 'boolean
+  :safe #'booleanp)
 
 (defcustom org-latex-table-scientific-notation "%s\\,(%s)"
   "Format string to display numbers in scientific notation.
@@ -524,7 +529,6 @@ When nil, no transformation is made."
   :type '(choice
 	  (string :tag "Format string")
 	  (const :tag "No formatting")))
-
 
 ;;;; Text markup
 
@@ -656,8 +660,9 @@ into previewing problems, please consult
   :group 'org-export-latex
   :type '(choice
 	  (const :tag "Use listings" t)
-	  (const :tag "Use minted" 'minted)
-	  (const :tag "Export verbatim" nil)))
+	  (const :tag "Use minted" minted)
+	  (const :tag "Export verbatim" nil))
+  :safe (lambda (s) (memq s '(t nil minted))))
 
 (defcustom org-latex-listings-langs
   '((emacs-lisp "Lisp") (lisp "Lisp") (clojure "Lisp")
@@ -691,8 +696,8 @@ a list containing two strings: the name of the option, and the
 value.  For example,
 
   (setq org-latex-listings-options
-    '((\"basicstyle\" \"\\small\")
-      (\"keywordstyle\" \"\\color{black}\\bfseries\\underbar\")))
+    '((\"basicstyle\" \"\\\\small\")
+      (\"keywordstyle\" \"\\\\color{black}\\\\bfseries\\\\underbar\")))
 
 will typeset the code in a small size font with underlined, bold
 black keywords.
@@ -1063,6 +1068,11 @@ just outside of it."
 	      (reverse all-refs)))))
      (funcall search-refs element))
    ""))
+
+(defun org-latex--translate (s info)
+  "Translate string S according to specified language.
+INFO is a plist used as a communication channel."
+  (org-export-translate s :latex info))
 
 
 
@@ -2621,18 +2631,33 @@ a communication channel."
 	     ((and (memq 'top borders) (memq 'above borders)) "\\hline\n"))
        contents "\\\\\n"
        (cond
-	;; Special case for long tables. Define header and footers.
+	;; Special case for long tables.  Define header and footers.
 	((and longtablep (org-export-table-row-ends-header-p table-row info))
 	 (format "%s
+\\endfirsthead
+\\multicolumn{%d}{l}{%s} \\\\
+%s
+%s \\\\\n
+%s
 \\endhead
-%s\\multicolumn{%d}{r}{Continued on next page} \\\\
+%s\\multicolumn{%d}{r}{%s} \\\\
 \\endfoot
 \\endlastfoot"
+		 (if booktabsp "\\midrule" "\\hline")
+		 (cdr (org-export-table-dimensions
+		       (org-export-get-parent-table table-row) info))
+		 (org-latex--translate "Continued from previous page" info)
+		 (cond ((and booktabsp (memq 'top borders)) "\\toprule\n")
+		       ((and (memq 'top borders)
+			     (memq 'above borders)) "\\hline\n")
+		       (t ""))
+		 contents
 		 (if booktabsp "\\midrule" "\\hline")
 		 (if booktabsp "\\midrule" "\\hline")
 		 ;; Number of columns.
 		 (cdr (org-export-table-dimensions
-		       (org-export-get-parent-table table-row) info))))
+		       (org-export-get-parent-table table-row) info))
+		 (org-latex--translate "Continued on next page" info)))
 	;; When BOOKTABS are activated enforce bottom rule even when
 	;; no hline was specifically marked.
 	((and booktabsp (memq 'bottom borders)) "\\bottomrule")

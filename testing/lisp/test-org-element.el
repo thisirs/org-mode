@@ -273,14 +273,6 @@ Some other text
   (should
    (org-test-with-temp-text "#+begin_center\nText\n#+end_center"
      (org-element-map (org-element-parse-buffer) 'center-block 'identity)))
-  ;; Test folded block.
-  (org-test-with-temp-text "#+BEGIN_CENTER\nText\n#+END_CENTER"
-    (org-cycle)
-    (should
-     (org-element-property
-      :hiddenp
-      (org-element-map
-       (org-element-parse-buffer) 'center-block 'identity nil t))))
   ;; Ignore incomplete block.
   (should-not
    (org-test-with-temp-text "#+BEGIN_CENTER"
@@ -393,14 +385,6 @@ Some other text
    (org-test-with-temp-text "#+begin_comment\nText\n#+end_comment"
      (org-element-map
       (org-element-parse-buffer) 'comment-block 'identity)))
-  ;; Test folded block.
-  (org-test-with-temp-text "#+BEGIN_COMMENT\nText\n#+END_COMMENT"
-    (org-cycle)
-    (should
-     (org-element-property
-      :hiddenp
-      (org-element-map
-       (org-element-parse-buffer) 'comment-block 'identity nil t))))
   ;; Ignore incomplete block.
   (should-not
    (org-test-with-temp-text "#+BEGIN_COMMENT"
@@ -431,21 +415,18 @@ Some other text
   "Test `drawer' parser."
   ;; Standard test.
   (should
-   (let ((org-drawers '("TEST")))
-     (org-test-with-temp-text ":TEST:\nText\n:END:"
-       (org-element-map (org-element-parse-buffer) 'drawer 'identity))))
+   (org-test-with-temp-text ":TEST:\nText\n:END:"
+     (org-element-map (org-element-parse-buffer) 'drawer 'identity)))
   ;; Do not mix regular drawers and property drawers.
   (should-not
-   (let ((org-drawers '("PROPERTIES")))
-     (org-test-with-temp-text ":PROPERTIES:\n:prop: value\n:END:"
-       (org-element-map
-	(org-element-parse-buffer) 'drawer 'identity nil t))))
+   (org-test-with-temp-text ":PROPERTIES:\n:prop: value\n:END:"
+     (org-element-map
+	 (org-element-parse-buffer) 'drawer 'identity nil t)))
   ;; Ignore incomplete drawer.
   (should-not
-   (let ((org-drawers '("TEST")))
-     (org-test-with-temp-text ":TEST:"
-       (org-element-map
-	(org-element-parse-buffer) 'drawer 'identity nil t)))))
+   (org-test-with-temp-text ":TEST:"
+     (org-element-map
+	 (org-element-parse-buffer) 'drawer 'identity nil t))))
 
 
 ;;;; Dynamic Block
@@ -457,15 +438,6 @@ Some other text
    (org-test-with-temp-text
        "#+BEGIN: myblock :param1 val1 :param2 val2\nText\n#+END:"
      (org-element-map (org-element-parse-buffer) 'dynamic-block 'identity)))
-  ;; Folded view
-  (org-test-with-temp-text
-      "#+BEGIN: myblock :param1 val1 :param2 val2\nText\n#+END:"
-    (org-cycle)
-    (should
-     (org-element-property
-      :hiddenp
-      (org-element-map
-       (org-element-parse-buffer) 'dynamic-block 'identity nil t))))
   ;; Ignore case.
   (should
    (org-test-with-temp-text
@@ -518,11 +490,6 @@ Some other text
   (should
    (org-test-with-temp-text "#+BEGIN_EXAMPLE\nText\n#+END_EXAMPLE"
      (org-element-map (org-element-parse-buffer) 'example-block 'identity)))
-  ;; Test folded block.
-  (should
-   (org-test-with-temp-text "#+BEGIN_EXAMPLE\nText\n#+END_EXAMPLE"
-     (org-cycle)
-     (org-element-property :hiddenp (org-element-at-point))))
   ;; Ignore incomplete block.
   (should-not
    (eq 'example-block
@@ -534,16 +501,8 @@ Some other text
 	  (org-test-with-temp-text
 	      "#+BEGIN_EXAMPLE\n,* Headline\n ,#+keyword\nText\n#+END_EXAMPLE"
 	    (org-element-property :value (org-element-at-point)))))
-  ;; Nil `org-src-preserve-indentation': Remove maximum common
-  ;; indentation.
-  (should
-   (equal " L1\nL2\n"
-	  (org-test-with-temp-text "#+BEGIN_EXAMPLE\n  L1\n L2\n#+END_EXAMPLE"
-	    (let ((org-src-preserve-indentation nil))
-	      (org-element-property :value (org-element-at-point))))))
-  ;; Non-nil `org-src-preserve-indentation': Remove block indentation
-  ;; only, unless block contents are less indented than block
-  ;; boundaries.
+  ;; Remove block indentation according to block boundaries, unless
+  ;; block contents are less indented than block boundaries.
   (should
    (equal " L1\nL2\n"
 	  (org-test-with-temp-text " #+BEGIN_EXAMPLE\n  L1\n L2\n #+END_EXAMPLE"
@@ -682,17 +641,6 @@ Some other text
 	     '(("LATEX" . org-element-export-block-parser))))
 	(org-element-parse-buffer))
       'export-block 'identity)))
-  ;; Test folded block.
-  (org-test-with-temp-text "#+BEGIN_LATEX\nText\n#+END_LATEX"
-    (org-cycle)
-    (should
-     (org-element-property
-      :hiddenp
-      (org-element-map
-       (let ((org-element-block-name-alist
-	      '(("LATEX" . org-element-export-block-parser))))
-	 (org-element-parse-buffer))
-       'export-block 'identity nil t))))
   ;; Ignore case.
   (should
    (org-test-with-temp-text "#+begin_latex\nText\n#+end_latex"
@@ -1111,23 +1059,18 @@ DEADLINE: <2012-03-29 thu.>"
       (org-element-map
        (org-element-parse-buffer) 'item
        (lambda (item) (org-element-property :checkbox item))))))
-  ;; Folded state.
-  (org-test-with-temp-text "* Headline
-- item
-
-  paragraph below"
-    (forward-line)
-    (let ((org-cycle-include-plain-lists t)) (org-cycle))
-    (should
-     (org-element-property
-      :hiddenp
-      (org-element-map (org-element-parse-buffer) 'item 'identity nil t))))
   ;; Item starting with special syntax.
   (should
    (equal '(("- item"))
 	  (org-test-with-temp-text "- - item"
 	    (org-element-map
-	     (org-element-parse-buffer) 'paragraph 'org-element-contents)))))
+	     (org-element-parse-buffer) 'paragraph 'org-element-contents))))
+  ;; Block in an item: ignore indentation within the block.
+  (should
+   (org-test-with-temp-text "- item\n  #+begin_src emacs-lisp\n(+ 1 1)\n  #+end_src"
+     (forward-char)
+     (goto-char (org-element-property :end (org-element-at-point)))
+     (eobp))))
 
 
 ;;;; Keyword
@@ -1201,32 +1144,25 @@ e^{i\\pi}+1=0
 
 (ert-deftest test-org-element/latex-fragment-parser ()
   "Test `latex-fragment' parser."
-  (let ((org-latex-regexps
-	 '(("begin" "^[ 	]*\\(\\\\begin{\\([a-zA-Z0-9\\*]+\\)[^ ]+?\\\\end{\\2}\\)" 1 t)
-	   ("$1" "\\([^$]\\|^\\)\\(\\$[^ 	\n,;.$]\\$\\)\\([- 	.,?;:'\") ]\\|$\\)" 2 nil)
-	   ("$" "\\([^$]\\|^\\)\\(\\(\\$\\([^ 	\n,;.$][^$\n]*?\\(\n[^$\n]*?\\)\\{0,2\\}[^ 	\n,.$]\\)\\$\\)\\)\\([- 	.,?;:'\") ]\\|$\\)" 2 nil)
-	   ("\\(" "\\\\([^ ]*?\\\\)" 0 nil)
-	   ("\\[" "\\\\\\[[^ ]*?\\\\\\]" 0 nil)
-	   ("$$" "\\$\\$[^ ]*?\\$\\$" 0 nil))))
-    (should
-     (org-test-with-temp-text "$a$"
-       (org-element-map (org-element-parse-buffer) 'latex-fragment 'identity)))
-    (should
-     (org-test-with-temp-text "$$a$$"
-       (org-element-map (org-element-parse-buffer) 'latex-fragment 'identity)))
-    (should
-     (org-test-with-temp-text "\\(a\\)"
-       (org-element-map (org-element-parse-buffer) 'latex-fragment 'identity)))
-    (should
-     (org-test-with-temp-text "\\[a\\]"
-       (org-element-map
-	(org-element-parse-buffer) 'latex-fragment 'identity)))
-    ;; Test fragment at the beginning of an item.
-    (should
-     (eq 'latex-fragment
-	 (org-test-with-temp-text "- $x$"
-	   (progn (search-forward "$")
-		  (org-element-type (org-element-context))))))))
+  (should
+   (org-test-with-temp-text "$a$"
+     (org-element-map (org-element-parse-buffer) 'latex-fragment 'identity)))
+  (should
+   (org-test-with-temp-text "$$a$$"
+     (org-element-map (org-element-parse-buffer) 'latex-fragment 'identity)))
+  (should
+   (org-test-with-temp-text "\\(a\\)"
+     (org-element-map (org-element-parse-buffer) 'latex-fragment 'identity)))
+  (should
+   (org-test-with-temp-text "\\[a\\]"
+     (org-element-map
+	 (org-element-parse-buffer) 'latex-fragment 'identity)))
+  ;; Test fragment at the beginning of an item.
+  (should
+   (eq 'latex-fragment
+       (org-test-with-temp-text "- $x$"
+	 (progn (search-forward "$")
+		(org-element-type (org-element-context)))))))
 
 
 ;;;; Line Break
@@ -1464,16 +1400,10 @@ e^{i\\pi}+1=0
      (org-element-map (org-element-parse-buffer) 'paragraph 'identity)))
   ;; Include incomplete-drawers.
   (should
-   (let ((org-drawers '("TEST")))
-     (org-test-with-temp-text ":TEST:\nParagraph"
-       (let ((elem (org-element-at-point)))
-	 (and (eq (org-element-type elem) 'paragraph)
-	      (= (point-max) (org-element-property :end elem)))))))
-  ;; Include non-existent drawers.
-  (should
-   (let ((org-drawers '("TEST")))
-     (org-test-with-temp-text ":NONAME:"
-       (org-element-map (org-element-parse-buffer) 'paragraph 'identity))))
+   (org-test-with-temp-text ":TEST:\nParagraph"
+     (let ((elem (org-element-at-point)))
+       (and (eq (org-element-type elem) 'paragraph)
+	    (= (point-max) (org-element-property :end elem))))))
   ;; Include incomplete blocks.
   (should
    (org-test-with-temp-text "#+BEGIN_CENTER\nParagraph"
@@ -1566,22 +1496,19 @@ Outside list"
   "Test `property-drawer' parser."
   ;; Standard test.
   (should
-   (let ((org-drawers '("PROPERTIES")))
-     (org-test-with-temp-text ":PROPERTIES:\n:prop: value\n:END:"
-       (org-element-map
-	(org-element-parse-buffer) 'property-drawer 'identity nil t))))
+   (org-test-with-temp-text ":PROPERTIES:\n:prop: value\n:END:"
+     (org-element-map
+	 (org-element-parse-buffer) 'property-drawer 'identity nil t)))
   ;; Do not mix property drawers and regular drawers.
   (should-not
-   (let ((org-drawers '("TEST")))
-     (org-test-with-temp-text ":TEST:\n:prop: value\n:END:"
-       (org-element-map
-	(org-element-parse-buffer) 'property-drawer 'identity nil t))))
+   (org-test-with-temp-text ":TEST:\n:prop: value\n:END:"
+     (org-element-map
+	 (org-element-parse-buffer) 'property-drawer 'identity nil t)))
   ;; Ignore incomplete drawer.
   (should-not
-   (let ((org-drawers '("PROPERTIES")))
-     (org-test-with-temp-text ":PROPERTIES:\n:prop: value"
-       (org-element-map
-	(org-element-parse-buffer) 'property-drawer 'identity nil t)))))
+   (org-test-with-temp-text ":PROPERTIES:\n:prop: value"
+     (org-element-map
+	 (org-element-parse-buffer) 'property-drawer 'identity nil t))))
 
 
 ;;;; Quote Block
@@ -1592,14 +1519,6 @@ Outside list"
   (should
    (org-test-with-temp-text "#+BEGIN_QUOTE\nText\n#+END_QUOTE"
      (org-element-map (org-element-parse-buffer) 'quote-block 'identity)))
-  ;; Test folded block.
-  (org-test-with-temp-text "#+BEGIN_QUOTE\nText\n#+END_QUOTE"
-    (org-cycle)
-    (should
-     (org-element-property
-      :hiddenp
-      (org-element-map
-       (org-element-parse-buffer) 'quote-block 'identity nil t))))
   ;; Ignore incomplete block.
   (should-not
    (org-test-with-temp-text "#+BEGIN_QUOTE"
@@ -1674,11 +1593,6 @@ Outside list"
        (org-test-with-temp-text "#+BEGIN_SPECIAL\nText\n#+END_SPECIAL"
 	 (forward-line)
 	 (org-element-type (org-element-at-point)))))
-  ;; Test folded block.
-  (should
-   (org-test-with-temp-text "#+BEGIN_SPECIAL\nText\n#+END_SPECIAL"
-     (org-cycle)
-     (org-element-property :hiddenp (org-element-at-point))))
   ;; Ignore incomplete block.
   (should-not
    (eq 'special-block
@@ -1701,11 +1615,6 @@ Outside list"
   (should
    (org-test-with-temp-text "#+BEGIN_SRC org\nText\n#+END_SRC"
      (org-element-map (org-element-parse-buffer) 'src-block 'identity)))
-  ;; Test folded block.
-  (should
-   (org-test-with-temp-text "#+BEGIN_SRC org\nText\n#+END_SRC"
-     (org-cycle)
-     (org-element-property :hiddenp (org-element-at-point))))
   ;; Ignore incomplete block.
   (should-not
    (org-test-with-temp-text "#+BEGIN_SRC"
@@ -1716,16 +1625,8 @@ Outside list"
 	  (org-test-with-temp-text
 	      "#+BEGIN_SRC org\n,* Headline\n ,#+keyword\nText\n#+END_SRC"
 	    (org-element-property :value (org-element-at-point)))))
-  ;; Nil `org-src-preserve-indentation': Remove maximum common
-  ;; indentation.
-  (should
-   (equal " L1\nL2\n"
-	  (org-test-with-temp-text "#+BEGIN_SRC org\n  L1\n L2\n#+END_SRC"
-	    (let ((org-src-preserve-indentation nil))
-	      (org-element-property :value (org-element-at-point))))))
-  ;; Non-nil `org-src-preserve-indentation': Remove block indentation
-  ;; only, unless block contents are less indented than block
-  ;; boundaries.
+  ;; Remove block indentation according to block boundaries, unless
+  ;; block contents are less indented than block boundaries.
   (should
    (equal " L1\nL2\n"
 	  (org-test-with-temp-text " #+BEGIN_SRC org\n  L1\n L2\n #+END_SRC"
@@ -1921,11 +1822,21 @@ Outside list"
      (let ((timestamp (org-element-context)))
        (or (org-element-property :hour-end timestamp)
 	   (org-element-property :minute-end timestamp)))))
-  ;; With repeater.
+  ;; With repeater, warning delay and both.
   (should
    (eq 'catch-up
        (org-test-with-temp-text "<2012-03-29 Thu ++1y>"
 	 (org-element-property :repeater-type (org-element-context)))))
+  (should
+   (eq 'first
+       (org-test-with-temp-text "<2012-03-29 Thu --1y>"
+	 (org-element-property :warning-type (org-element-context)))))
+  (should
+   (equal '(cumulate all)
+	  (org-test-with-temp-text "<2012-03-29 Thu +1y -1y>"
+	    (let ((ts (org-element-context)))
+	      (list (org-element-property :repeater-type ts)
+		    (org-element-property :warning-type ts))))))
   ;; Timestamps are not planning elements.
   (should-not
    (org-test-with-temp-text "SCHEDULED: <2012-03-29 Thu 16:40>"
@@ -1978,29 +1889,22 @@ Outside list"
 (ert-deftest test-org-element/verse-block-parser ()
   "Test `verse-block' parser."
   ;; Standard test.
-  (org-test-with-temp-text "#+BEGIN_VERSE\nVerse block\n#+END_VERSE"
-    (should
+  (should
+   (org-test-with-temp-text "#+BEGIN_VERSE\nVerse block\n#+END_VERSE"
      (org-element-map (org-element-parse-buffer) 'verse-block 'identity)))
   ;; Ignore case.
-  (org-test-with-temp-text "#+begin_verse\nVerse block\n#+end_verse"
-    (should
+  (should
+   (org-test-with-temp-text "#+begin_verse\nVerse block\n#+end_verse"
      (org-element-map (org-element-parse-buffer) 'verse-block 'identity)))
-  ;; Parse folding.
-  (org-test-with-temp-text "#+BEGIN_VERSE\nVerse block\n#+END_VERSE"
-    (org-hide-block-all)
-    (should
-     (org-element-property
-      :hiddenp
-      (org-element-map
-       (org-element-parse-buffer) 'verse-block 'identity nil t))))
   ;; Parse objects in verse blocks.
-  (org-test-with-temp-text "#+BEGIN_VERSE\nVerse \\alpha\n#+END_VERSE"
-    (should (org-element-map (org-element-parse-buffer) 'entity 'identity)))
+  (should
+   (org-test-with-temp-text "#+BEGIN_VERSE\nVerse \\alpha\n#+END_VERSE"
+     (org-element-map (org-element-parse-buffer) 'entity 'identity)))
   ;; Ignore incomplete verse block.
   (should-not
    (org-test-with-temp-text "#+BEGIN_VERSE"
      (org-element-map
-      (org-element-parse-buffer) 'verse-block 'identity nil t))))
+	 (org-element-parse-buffer) 'verse-block 'identity nil t))))
 
 
 
@@ -2049,8 +1953,7 @@ Outside list"
 (ert-deftest test-org-element/drawer-interpreter ()
   "Test drawer interpreter."
   (should
-   (equal (let ((org-drawers '("TEST")))
-	    (org-test-parse-and-interpret ":TEST:\nTest\n:END:"))
+   (equal (org-test-parse-and-interpret ":TEST:\nTest\n:END:")
 	  ":TEST:\nTest\n:END:\n")))
 
 (ert-deftest test-org-element/dynamic-block-interpreter ()
@@ -2446,7 +2349,7 @@ DEADLINE: <2012-01-01> SCHEDULED: <2012-01-01> CLOSED: [2012-01-01]\n"))))
   ;; Diary.
   (should (equal (org-test-parse-and-interpret "<%%diary-float t 4 2>")
 		 "<%%diary-float t 4 2>\n"))
-  ;; Timestamp with repeater interval.
+  ;; Timestamp with repeater interval, with delay, with both.
   (should (equal (org-test-parse-and-interpret "<2012-03-29 thu. +1y>")
 		 "<2012-03-29 thu. +1y>\n"))
   (should
@@ -2455,6 +2358,23 @@ DEADLINE: <2012-01-01> SCHEDULED: <2012-01-01> CLOSED: [2012-01-01]\n"))))
     (org-element-timestamp-interpreter
      '(timestamp
        (:type active :year-start 2012 :month-start 3 :day-start 29
+	      :repeater-type cumulate :repeater-value 1 :repeater-unit year))
+     nil)))
+  (should
+   (string-match
+    "<2012-03-29 .* -1y>"
+    (org-element-timestamp-interpreter
+     '(timestamp
+       (:type active :year-start 2012 :month-start 3 :day-start 29
+	      :warning-type all :warning-value 1 :warning-unit year))
+     nil)))
+  (should
+   (string-match
+    "<2012-03-29 .* \\+1y -1y>"
+    (org-element-timestamp-interpreter
+     '(timestamp
+       (:type active :year-start 2012 :month-start 3 :day-start 29
+	      :warning-type all :warning-value 1 :warning-unit year
 	      :repeater-type cumulate :repeater-value 1 :repeater-unit year))
      nil)))
   ;; Timestamp range with repeater interval

@@ -839,15 +839,23 @@ automatically.  But you can retrieve them with \\[org-export-stack]."
   :package-version '(Org . "8.0")
   :type 'boolean)
 
-(defcustom org-export-async-init-file user-init-file
+(defcustom org-export-async-init-file nil
   "File used to initialize external export process.
-Value must be an absolute file name.  It defaults to user's
-initialization file.  Though, a specific configuration makes the
-process faster and the export more portable."
+
+Value must be either nil or an absolute file name.  When nil, the
+external process is launched like a regular Emacs session,
+loading user's initialization file and any site specific
+configuration.  If a file is provided, it, and only it, is loaded
+at start-up.
+
+Therefore, using a specific configuration makes the process to
+load faster and the export more portable."
   :group 'org-export-general
   :version "24.4"
-  :package-version '(Org . "8.0")
-  :type '(file :must-match t))
+  :package-version '(Org . "8.3")
+  :type '(choice
+	  (const :tag "Regular startup" nil)
+	  (file :tag "Specific start-up file" :must-match t)))
 
 (defcustom org-export-dispatch-use-expert-ui nil
   "Non-nil means using a non-intrusive `org-export-dispatch'.
@@ -4192,17 +4200,21 @@ ELEMENT is excluded from count."
 ELEMENT has either a `src-block' an `example-block' type.
 
 Return a cons cell whose CAR is the source code, cleaned from any
-reference and protective comma and CDR is an alist between
-relative line number (integer) and name of code reference on that
-line (string)."
+reference, protective commas and spurious indentation, and CDR is
+an alist between relative line number (integer) and name of code
+reference on that line (string)."
   (let* ((line 0) refs
+	 (value (org-element-property :value element))
 	 ;; Get code and clean it.  Remove blank lines at its
 	 ;; beginning and end.
 	 (code (replace-regexp-in-string
 		"\\`\\([ \t]*\n\\)+" ""
 		(replace-regexp-in-string
 		 "\\([ \t]*\n\\)*[ \t]*\\'" "\n"
-		 (org-element-property :value element))))
+		 (if (or org-src-preserve-indentation
+			 (org-element-property :preserve-indent element))
+		     value
+		   (org-element-remove-indentation value)))))
 	 ;; Get format used for references.
 	 (label-fmt (regexp-quote
 		     (or (org-element-property :label-fmt element)
@@ -4646,7 +4658,7 @@ Returned borders ignore special rows."
     borders))
 
 (defun org-export-table-cell-starts-colgroup-p (table-cell info)
-  "Non-nil when TABLE-CELL is at the beginning of a row group.
+  "Non-nil when TABLE-CELL is at the beginning of a column group.
 INFO is a plist used as a communication channel."
   ;; A cell starts a column group either when it is at the beginning
   ;; of a row (or after the special column, if any) or when it has
@@ -4657,7 +4669,7 @@ INFO is a plist used as a communication channel."
       (memq 'left (org-export-table-cell-borders table-cell info))))
 
 (defun org-export-table-cell-ends-colgroup-p (table-cell info)
-  "Non-nil when TABLE-CELL is at the end of a row group.
+  "Non-nil when TABLE-CELL is at the end of a column group.
 INFO is a plist used as a communication channel."
   ;; A cell ends a column group either when it is at the end of a row
   ;; or when it has a right border.
@@ -4667,7 +4679,7 @@ INFO is a plist used as a communication channel."
       (memq 'right (org-export-table-cell-borders table-cell info))))
 
 (defun org-export-table-row-starts-rowgroup-p (table-row info)
-  "Non-nil when TABLE-ROW is at the beginning of a column group.
+  "Non-nil when TABLE-ROW is at the beginning of a row group.
 INFO is a plist used as a communication channel."
   (unless (or (eq (org-element-property :type table-row) 'rule)
 	      (org-export-table-row-is-special-p table-row info))
@@ -4676,7 +4688,7 @@ INFO is a plist used as a communication channel."
       (or (memq 'top borders) (memq 'above borders)))))
 
 (defun org-export-table-row-ends-rowgroup-p (table-row info)
-  "Non-nil when TABLE-ROW is at the end of a column group.
+  "Non-nil when TABLE-ROW is at the end of a row group.
 INFO is a plist used as a communication channel."
   (unless (or (eq (org-element-property :type table-row) 'rule)
 	      (org-export-table-row-is-special-p table-row info))
@@ -5272,6 +5284,22 @@ them."
      ("uk" :html "&#1040;&#1074;&#1090;&#1086;&#1088;" :utf-8 "Автор")
      ("zh-CN" :html "&#20316;&#32773;" :utf-8 "作者")
      ("zh-TW" :html "&#20316;&#32773;" :utf-8 "作者"))
+    ("Continued from previous page"
+     ("de" :default "Fortsetzung von vorheriger Seite")
+     ("es" :default "Continúa de la página anterior")
+     ("fr" :default "Suite de la page précédente")
+     ("it" :default "Continua da pagina precedente")
+     ("ja" :utf-8 "前ページから続く")
+     ("nl" :default "Vervolg van vorige pagina")
+     ("pt" :default "Continuação da página anterior"))
+    ("Continued on next page"
+     ("de" :default "Fortsetzung nächste Seite")
+     ("es" :default "Continúa en la siguiente página")
+     ("fr" :default "Suite page suivante")
+     ("it" :default "Continua alla pagina successiva")
+     ("ja" :utf-8 "次ページに続く")
+     ("nl" :default "Vervolg op volgende pagina")
+     ("pt" :default "Continua na página seguinte"))
     ("Date"
      ("ca" :default "Data")
      ("cs" :default "Datum")
@@ -5380,8 +5408,8 @@ them."
      ("es" :default "Listado de programa %d")
      ("et" :default "Loend %d")
      ("fr" :default "Programme %d :" :html "Programme&nbsp;%d&nbsp;:")
-     ("no" :default "Dataprogram")
-     ("nb" :default "Dataprogram")
+     ("no" :default "Dataprogram %d")
+     ("nb" :default "Dataprogram %d")
      ("zh-CN" :html "&#20195;&#30721;%d&nbsp;" :utf-8 "代码%d "))
     ("See section %s"
      ("da" :default "jævnfør afsnit %s")
@@ -5389,7 +5417,7 @@ them."
      ("es" :default "vea seccion %s")
      ("et" :html "Vaata peat&#252;kki %s" :utf-8 "Vaata peatükki %s")
      ("fr" :default "cf. section %s")
-     ("zh-CN" :html "&#21442;&#35265;&#31532;%d&#33410;" :utf-8 "参见第%s节"))
+     ("zh-CN" :html "&#21442;&#35265;&#31532;%s&#33410;" :utf-8 "参见第%s节"))
     ("Table"
      ("de" :default "Tabelle")
      ("es" :default "Tabla")
@@ -5544,12 +5572,17 @@ and `org-export-to-file' for more specialized functions."
          (let* ((process-connection-type nil)
                 (,proc-buffer (generate-new-buffer-name "*Org Export Process*"))
                 (,process
-                 (start-process
-                  "org-export-process" ,proc-buffer
-                  (expand-file-name invocation-name invocation-directory)
-                  "-Q" "--batch"
-                  "-l" org-export-async-init-file
-                  "-l" ,temp-file)))
+		 (apply
+		  #'start-process
+		  (append
+		   (list "org-export-process"
+			 ,proc-buffer
+			 (expand-file-name invocation-name invocation-directory)
+			 "--batch")
+		   (if org-export-async-init-file
+		       (list "-Q" "-l" org-export-async-init-file)
+		     (list "-l" user-init-file))
+		   (list "-l" ,temp-file)))))
            ;; Register running process in stack.
            (org-export-add-to-stack (get-buffer ,proc-buffer) nil ,process)
            ;; Set-up sentinel in order to catch results.
