@@ -1,6 +1,6 @@
 ;;; org-list.el --- Plain lists for Org-mode
 ;;
-;; Copyright (C) 2004-2013 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2014 Free Software Foundation, Inc.
 ;;
 ;; Author: Carsten Dominik <carsten at orgmode dot org>
 ;;	   Bastien Guerry <bzg@gnu.org>
@@ -92,6 +92,7 @@
 (defvar org-scheduled-string)
 (defvar org-ts-regexp)
 (defvar org-ts-regexp-both)
+(defvar org-drawer-regexp)
 
 (declare-function outline-invisible-p "outline" (&optional pos))
 (declare-function outline-flag-region "outline" (from to flag))

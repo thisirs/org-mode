@@ -1,6 +1,6 @@
 ;;; org-wikinodes.el --- Wiki-like CamelCase links to outline nodes
 
-;; Copyright (C) 2010-2013 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2014 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <carsten at orgmode dot org>
 ;; Keywords: outlines, hypermedia, calendar, wp
@@ -82,8 +82,6 @@ to `directory'."
 		;; in  heading - deactivate flyspell
 		(org-remove-flyspell-overlays-in (match-beginning 0)
 						 (match-end 0))
-		(add-text-properties (match-beginning 0) (match-end 0)
-				     '(org-no-flyspell t))
 		t)
 	    ;; this is a wiki link
 	    (org-remove-flyspell-overlays-in (match-beginning 0)

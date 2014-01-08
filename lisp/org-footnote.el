@@ -1,6 +1,6 @@
 ;;; org-footnote.el --- Footnote support in Org and elsewhere
 ;;
-;; Copyright (C) 2009-2013 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2014 Free Software Foundation, Inc.
 ;;
 ;; Author: Carsten Dominik <carsten at orgmode dot org>
 ;; Keywords: outlines, hypermedia, calendar, wp
@@ -106,8 +106,18 @@ the notes.  However, by hand you may place definitions
 *anywhere*.
 
 If this is a string, during export, all subtrees starting with
-this heading will be ignored."
+this heading will be ignored.
+
+If you don't use the customize interface to change this variable,
+you will need to run the following command after the change:
+
+  \\[universal-argument] \\[org-element-cache-reset]"
   :group 'org-footnote
+  :initialize 'custom-initialize-default
+  :set (lambda (var val)
+	 (set var val)
+	 (when (fboundp 'org-element-cache-reset)
+	   (org-element-cache-reset 'all)))
   :type '(choice
 	  (string :tag "Collect footnotes under heading")
 	  (const :tag "Define footnotes locally" nil)))

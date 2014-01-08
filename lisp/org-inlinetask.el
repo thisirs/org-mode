@@ -1,6 +1,6 @@
 ;;; org-inlinetask.el --- Tasks independent of outline hierarchy
 
-;; Copyright (C) 2009-2013 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2014 Free Software Foundation, Inc.
 ;;
 ;; Author: Carsten Dominik <carsten at orgmode dot org>
 ;; Keywords: outlines, hypermedia, calendar, wp
@@ -103,11 +103,11 @@ the value of this variable."
   "Non-nil means display the first star of an inline task as additional marker.
 When nil, the first star is not shown."
   :tag "Org Inline Tasks"
-  :group 'org-structure)
+  :group 'org-structure
+  :type 'boolean)
 
 (defvar org-odd-levels-only)
 (defvar org-keyword-time-regexp)
-(defvar org-drawer-regexp)
 (defvar org-complex-heading-regexp)
 (defvar org-property-end-re)
 

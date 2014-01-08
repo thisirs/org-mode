@@ -1,6 +1,6 @@
 ;;; test-ob.el --- tests for ob.el
 
-;; Copyright (c) 2010-2013 Eric Schulte
+;; Copyright (c) 2010-2014 Eric Schulte
 ;; Authors: Eric Schulte, Martyn Jago
 
 ;; This file is not part of GNU Emacs.
@@ -99,7 +99,10 @@
 
 (ert-deftest test-org-babel/default-inline-header-args ()
   (should(equal
-	  '((:session . "none") (:results . "replace") (:exports . "results"))
+	  '((:session . "none")
+	    (:results . "replace")
+	    (:exports . "results")
+	    (:hlines  . "yes"))
 	  org-babel-default-inline-header-args)))
 
 (ert-deftest ob-test/org-babel-combine-header-arg-lists ()
@@ -541,7 +544,7 @@ on two lines
 #+END_SRC"
     (org-babel-next-src-block 1)
     (should (string= (org-babel-execute-src-block)
-		     "A literal example\non two lines for me."))))
+		     "A literal example\non two lines\n for me."))))
 
 (ert-deftest test-ob/resolve-code-blocks-before-data-blocks ()
   (org-test-with-temp-text "
@@ -1201,6 +1204,38 @@ echo \"$data\"
     (dolist (arg malformed-args)
       (should (not (org-babel-one-header-arg-safe-p arg org-babel-safe-header-args))))
     (should (not (funcall safe-p (append safe-args unsafe-args))))))
+
+(ert-deftest test-ob/noweb-expansions-in-cache ()
+  "Ensure that noweb expansions are expanded before caching."
+  (let ((noweb-expansions-in-cache-var 0))
+    (org-test-with-temp-text "
+#+name: foo
+#+begin_src emacs-lisp
+  \"I said\"
+#+end_src
+
+#+name: bar
+#+begin_src emacs-lisp :noweb yes :cache yes
+  (setq noweb-expansions-in-cache-var
+        (+ 1 noweb-expansions-in-cache-var))
+  (concat <<foo>> \" check noweb expansions\")
+#+end_src
+"
+      ;; run the second block to create the cache
+      (goto-char (point-min))
+      (re-search-forward (regexp-quote "#+name: bar"))
+      (should (string= "I said check noweb expansions"
+		       (org-babel-execute-src-block)))
+      (should (= noweb-expansions-in-cache-var 1))
+      ;; change the value of the first block
+      (goto-char (point-min))
+      (re-search-forward (regexp-quote "said"))
+      (goto-char (match-beginning 0))
+      (insert "haven't ")
+      (re-search-forward (regexp-quote "#+name: bar"))
+      (should (string= "I haven't said check noweb expansions"
+		       (org-babel-execute-src-block)))
+      (should (= noweb-expansions-in-cache-var 2)))))
 
 (provide 'test-ob)
 

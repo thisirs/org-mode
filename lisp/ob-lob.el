@@ -1,6 +1,6 @@
 ;;; ob-lob.el --- functions supporting the Library of Babel
 
-;; Copyright (C) 2009-2013 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2014 Free Software Foundation, Inc.
 
 ;; Authors: Eric Schulte
 ;;	 Dan Davison
@@ -40,14 +40,13 @@ files to `org-babel-lob-files'.")
 To add files to this list use the `org-babel-lob-ingest' command."
   :group 'org-babel
   :version "24.1"
-  :type 'list)
+  :type '(repeat file))
 
 (defvar org-babel-default-lob-header-args '((:exports . "results"))
   "Default header arguments to use when exporting #+lob/call lines.")
 
 (defun org-babel-lob-ingest (&optional file)
-  "Add all named source-blocks defined in FILE to
-`org-babel-library-of-babel'."
+  "Add all named source blocks defined in FILE to `org-babel-library-of-babel'."
   (interactive "fFile: ")
   (let ((lob-ingest-count 0))
     (org-babel-map-src-blocks file
@@ -71,8 +70,8 @@ To add files to this list use the `org-babel-lob-ingest' command."
 
 (defconst org-babel-inline-lob-one-liner-regexp
   (concat
-   "\\([^\n]*?\\)call_\\([^\(\)\n]+?\\)\\(\\[\\(.*?\\)\\]\\|\\(\\)\\)"
-   "\(\\([^\n]*?\\)\)\\(\\[\\(.*?\\)\\]\\)?")
+   "\\([^\n]*?\\)call_\\([^\(\)[:space:]\n]+?\\)\\(\\[\\(.*?\\)\\]\\|\\(\\)\\)"
+   "\(\\(.*?\\)\)\\(\\[\\(.*?\\)\\]\\)?")
   "Regexp to match inline calls to predefined source block functions.")
 
 (defconst org-babel-lob-one-liner-regexp

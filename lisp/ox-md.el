@@ -1,9 +1,11 @@
 ;;; ox-md.el --- Markdown Back-End for Org Export Engine
 
-;; Copyright (C) 2012, 2013  Free Software Foundation, Inc.
+;; Copyright (C) 2012-2014 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <n.goaziou@gmail.com>
 ;; Keywords: org, wp, markdown
+
+;; This file is part of GNU Emacs.
 
 ;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -20,7 +22,7 @@
 
 ;;; Commentary:
 
-;; This library implements a Markdown back-end (vanilla flavour) for
+;; This library implements a Markdown back-end (vanilla flavor) for
 ;; Org exporter, based on `html' back-end.  See Org manual for more
 ;; information.
 
@@ -69,6 +71,7 @@ This variable can be set to either `atx' or `setext'."
 		     (comment . (lambda (&rest args) ""))
 		     (comment-block . (lambda (&rest args) ""))
 		     (example-block . org-md-example-block)
+		     (export-block . org-md-export-block)
 		     (fixed-width . org-md-example-block)
 		     (footnote-definition . ignore)
 		     (footnote-reference . ignore)
@@ -77,6 +80,7 @@ This variable can be set to either `atx' or `setext'."
 		     (inline-src-block . org-md-verbatim)
 		     (italic . org-md-italic)
 		     (item . org-md-item)
+		     (keyword . org-md-keyword)
 		     (line-break . org-md-line-break)
 		     (link . org-md-link)
 		     (node-property . org-md-node-property)
@@ -90,7 +94,6 @@ This variable can be set to either `atx' or `setext'."
 		     (src-block . org-md-example-block)
 		     (template . org-md-template)
 		     (verbatim . org-md-verbatim)))
-
 
 
 ;;; Filters
@@ -140,7 +143,7 @@ channel."
 	    value)))
 
 
-;;;; Example Block and Src Block
+;;;; Example Block, Src Block and export Block
 
 (defun org-md-example-block (example-block contents info)
   "Transcode EXAMPLE-BLOCK element into Markdown format.
@@ -150,6 +153,14 @@ channel."
    "^" "    "
    (org-remove-indentation
     (org-element-property :value example-block))))
+
+(defun org-md-export-block (export-block contents info)
+  "Transcode a EXPORT-BLOCK element from Org to Markdown.
+CONTENTS is nil.  INFO is a plist holding contextual information."
+  (if (member (org-element-property :type export-block) '("MARKDOWN" "MD"))
+      (org-remove-indentation (org-element-property :value export-block))
+    ;; Also include HTML export blocks.
+    (org-export-with-backend 'html export-block contents info)))
 
 
 ;;;; Headline
@@ -245,6 +256,18 @@ a communication channel."
 	    (let ((tag (org-element-property :tag item)))
 	      (and tag (format "**%s:** "(org-export-data tag info))))
 	    (org-trim (replace-regexp-in-string "^" "    " contents)))))
+
+
+
+;;;; Keyword
+
+(defun org-md-keyword (keyword contents info)
+  "Transcode a KEYWORD element into Markdown format.
+CONTENTS is nil.  INFO is a plist used as a communication
+channel."
+  (if (member (org-element-property :key keyword) '("MARKDOWN" "MD"))
+      (org-element-property :value keyword)
+    (org-export-with-backend 'html keyword contents info)))
 
 
 ;;;; Line Break

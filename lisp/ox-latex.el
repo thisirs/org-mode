@@ -1,9 +1,11 @@
 ;;; ox-latex.el --- LaTeX Back-End for Org Export Engine
 
-;; Copyright (C) 2011-2013  Free Software Foundation, Inc.
+;; Copyright (C) 2011-2014 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <n.goaziou at gmail dot com>
 ;; Keywords: outlines, hypermedia, calendar, wp
+
+;; This file is part of GNU Emacs.
 
 ;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -87,7 +89,9 @@
     (timestamp . org-latex-timestamp)
     (underline . org-latex-underline)
     (verbatim . org-latex-verbatim)
-    (verse-block . org-latex-verse-block))
+    (verse-block . org-latex-verse-block)
+    ;; Pseudo objects.
+    (latex-math-block . org-latex-math-block))
   :export-block '("LATEX" "TEX")
   :menu-entry
   '(?l "Export to LaTeX"
@@ -104,7 +108,9 @@
 		   (:latex-header-extra "LATEX_HEADER_EXTRA" nil nil newline)
 		   (:latex-hyperref-p nil "texht" org-latex-with-hyperref t)
 		   ;; Redefine regular options.
-		   (:date "DATE" nil "\\today" t)))
+		   (:date "DATE" nil "\\today" t))
+  :filters-alist '((:filter-options . org-latex-math-block-options-filter)
+		   (:filter-parse-tree . org-latex-math-block-tree-filter)))
 
 
 
@@ -167,6 +173,9 @@
 					    ("qbordermatrix" . "\\cr")
 					    ("kbordermatrix" . "\\\\"))
   "Alist between matrix macros and their row ending.")
+
+(defconst org-latex-pseudo-objects '(latex-math-block)
+  "List of pseudo-object types introduced in the back-end.")
 
 
 
@@ -559,7 +568,8 @@ returned as-is."
 
 ;;;; Drawers
 
-(defcustom org-latex-format-drawer-function nil
+(defcustom org-latex-format-drawer-function
+  (lambda (name contents) contents)
   "Function called to format a drawer in LaTeX code.
 
 The function must accept two parameters:
@@ -568,19 +578,16 @@ The function must accept two parameters:
 
 The function should return the string to be exported.
 
-For example, the variable could be set to the following function
-in order to mimic default behaviour:
-
-\(defun org-latex-format-drawer-default \(name contents\)
-  \"Format a drawer element for LaTeX export.\"
-  contents\)"
+The default function simply returns the value of CONTENTS."
   :group 'org-export-latex
+  :version "24.4"
+  :package-version '(Org . "8.3")
   :type 'function)
 
 
 ;;;; Inlinetasks
 
-(defcustom org-latex-format-inlinetask-function nil
+(defcustom org-latex-format-inlinetask-function 'ignore
   "Function called to format an inlinetask in LaTeX code.
 
 The function must accept six parameters:
@@ -1221,12 +1228,8 @@ channel."
 CONTENTS holds the contents of the block.  INFO is a plist
 holding contextual information."
   (let* ((name (org-element-property :drawer-name drawer))
-	 (output (if (functionp org-latex-format-drawer-function)
-		     (funcall org-latex-format-drawer-function
-			      name contents)
-		   ;; If there's no user defined function: simply
-		   ;; display contents of the drawer.
-		   contents)))
+	 (output (funcall org-latex-format-drawer-function
+			  name contents)))
     (org-latex--wrap-label drawer output)))
 
 
@@ -1245,8 +1248,7 @@ holding contextual information.  See `org-export-data'."
   "Transcode an ENTITY object from Org to LaTeX.
 CONTENTS are the definition itself.  INFO is a plist holding
 contextual information."
-  (let ((ent (org-element-property :latex entity)))
-    (if (org-element-property :latex-math-p entity) (format "$%s$" ent) ent)))
+  (org-element-property :latex entity))
 
 
 ;;;; Example Block
@@ -1334,13 +1336,13 @@ holding contextual information."
     (let* ((class (plist-get info :latex-class))
 	   (level (org-export-get-relative-level headline info))
 	   (numberedp (org-export-numbered-headline-p headline info))
-	   (class-sectionning (assoc class org-latex-classes))
+	   (class-sectioning (assoc class org-latex-classes))
 	   ;; Section formatting will set two placeholders: one for
 	   ;; the title and the other for the contents.
 	   (section-fmt
-	    (let ((sec (if (functionp (nth 2 class-sectionning))
-			   (funcall (nth 2 class-sectionning) level numberedp)
-			 (nth (1+ level) class-sectionning))))
+	    (let ((sec (if (functionp (nth 2 class-sectioning))
+			   (funcall (nth 2 class-sectioning) level numberedp)
+			 (nth (1+ level) class-sectioning))))
 	      (cond
 	       ;; No section available for that LEVEL.
 	       ((not sec) nil)
@@ -1511,7 +1513,7 @@ holding contextual information."
 		       (org-element-property :priority inlinetask))))
     ;; If `org-latex-format-inlinetask-function' is provided, call it
     ;; with appropriate arguments.
-    (if (functionp org-latex-format-inlinetask-function)
+    (if (not (eq org-latex-format-inlinetask-function 'ignore))
 	(funcall org-latex-format-inlinetask-function
 		 todo todo-type priority title tags contents)
       ;; Otherwise, use a default template.
@@ -1631,7 +1633,7 @@ CONTENTS is nil.  INFO is a plist holding contextual information."
 	  (value (org-remove-indentation
 		  (org-element-property :value latex-environment))))
       (if (not (org-string-nw-p label)) value
-	;; Environment is labelled: label must be within the environment
+	;; Environment is labeled: label must be within the environment
 	;; (otherwise, a reference pointing to that element will count
 	;; the section instead).
 	(with-temp-buffer
@@ -1648,8 +1650,14 @@ CONTENTS is nil.  INFO is a plist holding contextual information."
 (defun org-latex-latex-fragment (latex-fragment contents info)
   "Transcode a LATEX-FRAGMENT object from Org to LaTeX.
 CONTENTS is nil.  INFO is a plist holding contextual information."
-  (when (plist-get info :with-latex)
-    (org-element-property :value latex-fragment)))
+  (let ((value (org-element-property :value latex-fragment)))
+    ;; Trim math markers since the fragment is enclosed within
+    ;; a latex-math-block object anyway.
+    (cond ((string-match "\\`\\(\\$\\{1,2\\}\\)\\([^\000]*\\)\\1\\'" value)
+	   (match-string 2 value))
+	  ((string-match "\\`\\\\(\\([^\000]*\\)\\\\)\\'" value)
+	   (match-string 1 value))
+	  (t value))))
 
 
 ;;;; Line Break
@@ -1994,6 +2002,72 @@ holding contextual information."
        (format "\\begin{verbatim}\n%s\\end{verbatim}" contents)))
 
 
+;;;; Pseudo Object: LaTeX Math Block
+
+(defun org-latex--wrap-latex-math-block (data info)
+  "Merge contiguous math objects in a pseudo-object container.
+DATA is a parse tree or a secondary string.  INFO is a plist
+containing export options.  Modify DATA by side-effect and return it."
+  (let ((valid-object-p
+	 (function
+	  ;; Non-nil when OBJ can be added to the latex math block.
+	  (lambda (obj)
+	    (case (org-element-type obj)
+	      (entity (org-element-property :latex-math-p obj))
+	      (latex-fragment
+	       (let ((value (org-element-property :value obj)))
+		 (or (org-string-match-p "\\`\\\\([^\000]*\\\\)\\'" value)
+		     (org-string-match-p "\\`\\$[^\000]*\\$\\'" value))))
+	      ((subscript superscript) t))))))
+    (org-element-map data '(entity latex-fragment subscript superscript)
+      (lambda (object)
+	;; Skip objects already wrapped.
+	(when (and (not (eq (org-element-type
+			     (org-element-property :parent object))
+			    'latex-math-block))
+		   (funcall valid-object-p object))
+	  (let ((math-block (list 'latex-math-block nil))
+		(next-elements (org-export-get-next-element object info t))
+		(last object))
+	    ;; Wrap MATH-BLOCK around OBJECT in DATA.
+	    (org-element-insert-before math-block object)
+	    (org-element-extract-element object)
+	    (org-element-adopt-elements math-block object)
+	    (when (zerop (or (org-element-property :post-blank object) 0))
+	      ;; MATH-BLOCK swallows consecutive math objects.
+	      (catch 'exit
+		(dolist (next next-elements)
+		  (if (not (funcall valid-object-p next)) (throw 'exit nil)
+		    (org-element-extract-element next)
+		    (org-element-adopt-elements math-block next)
+		    ;; Eschew the case: \beta$x$ -> \(\betax\).
+		    (unless (memq (org-element-type next)
+				  '(subscript superscript))
+		      (org-element-put-property last :post-blank 1))
+		    (setq last next)
+		    (when (> (or (org-element-property :post-blank next) 0) 0)
+		      (throw 'exit nil))))))
+	    (org-element-put-property
+	     math-block :post-blank (org-element-property :post-blank last)))))
+      info nil '(subscript superscript latex-math-block) t)
+    ;; Return updated DATA.
+    data))
+
+(defun org-latex-math-block-tree-filter (tree backend info)
+  (org-latex--wrap-latex-math-block tree info))
+
+(defun org-latex-math-block-options-filter (info backend)
+  (dolist (prop '(:author :date :title) info)
+    (plist-put info prop
+	       (org-latex--wrap-latex-math-block (plist-get info prop) info))))
+
+(defun org-latex-math-block (math-block contents info)
+  "Transcode a MATH-BLOCK object from Org to LaTeX.
+CONTENTS is a string.  INFO is a plist used as a communication
+channel."
+  (when (org-string-nw-p contents)
+    (format "\\(%s\\)" (org-trim contents))))
+
 ;;;; Quote Block
 
 (defun org-latex-quote-block (quote-block contents info)
@@ -2223,17 +2297,7 @@ holding contextual information."
   "Transcode a subscript or superscript object.
 OBJECT is an Org object.  INFO is a plist used as a communication
 channel."
-  (let ((in-script-p
-	 ;; Non-nil if object is already in a sub/superscript.
-	 (let ((parent object))
-	   (catch 'exit
-	     (while (setq parent (org-export-get-parent parent))
-	       (let ((type (org-element-type parent)))
-		 (cond ((memq type '(subscript superscript))
-			(throw 'exit t))
-		       ((memq type org-element-all-elements)
-			(throw 'exit nil))))))))
-	(type (org-element-type object))
+  (let ((type (org-element-type object))
 	(output ""))
     (org-element-map (org-element-contents object)
 	(cons 'plain-text org-element-all-objects)
@@ -2259,31 +2323,12 @@ channel."
 			 (let ((blank (org-element-property :post-blank obj)))
 			   (and blank (> blank 0) "\\ ")))))))
       info nil org-element-recursive-objects)
-    ;; Result.  Do not wrap into math mode if already in a subscript
-    ;; or superscript.  Do not wrap into curly brackets if OUTPUT is
-    ;; a single character.  Also merge consecutive subscript and
-    ;; superscript into the same math snippet.
-    (concat (and (not in-script-p)
-		 (let ((prev (org-export-get-previous-element object info)))
-		   (or (not prev)
-		       (not (eq (org-element-type prev)
-				(if (eq type 'subscript) 'superscript
-				  'subscript)))
-		       (let ((blank (org-element-property :post-blank prev)))
-			 (and blank (> blank 0)))))
-		 "$")
-	    (if (eq (org-element-type object) 'subscript) "_" "^")
+    ;; Result.  Do not wrap into curly brackets if OUTPUT is a single
+    ;; character.
+    (concat (if (eq (org-element-type object) 'subscript) "_" "^")
 	    (and (> (length output) 1) "{")
 	    output
-	    (and (> (length output) 1) "}")
-	    (and (not in-script-p)
-		 (or (let ((blank (org-element-property :post-blank object)))
-		       (and blank (> blank 0)))
-		     (not (eq (org-element-type
-			       (org-export-get-next-element object info))
-			      (if (eq type 'subscript) 'superscript
-				'subscript))))
-		 "$"))))
+	    (and (> (length output) 1) "}"))))
 
 (defun org-latex-subscript (subscript contents info)
   "Transcode a SUBSCRIPT object from Org to LaTeX.
@@ -2327,7 +2372,8 @@ contextual information."
 	(format "\\begin{verbatim}\n%s\n\\end{verbatim}"
 		;; Re-create table, without affiliated keywords.
 		(org-trim (org-element-interpret-data
-			   `(table nil ,@(org-element-contents table))))))
+			   `(table nil ,@(org-element-contents table))
+			   org-latex-pseudo-objects))))
        ;; Case 2: Matrix.
        ((or (string= type "math") (string= type "inline-math"))
 	(org-latex--math-table table info))
@@ -2522,7 +2568,9 @@ This function assumes TABLE has `org' as its `:type' property and
 	       (concat
 		(mapconcat
 		 (lambda (cell)
-		   (substring (org-element-interpret-data cell) 0 -1))
+		   (substring
+		    (org-element-interpret-data cell org-latex-pseudo-objects)
+		    0 -1))
 		 (org-element-map row 'table-cell 'identity info) "&")
 		(or (cdr (assoc env org-latex-table-matrix-macros)) "\\\\")
 		"\n")))
@@ -2900,9 +2948,13 @@ Return PDF file name or an error if it couldn't be produced."
 	  ;; Else remove log files, when specified, and signal end of
 	  ;; process to user, along with any error encountered.
 	  (when (and (not snippet) org-latex-remove-logfiles)
-	    (dolist (ext org-latex-logfiles-extensions)
-	      (let ((file (concat out-dir base-name "." ext)))
-		(when (file-exists-p file) (delete-file file)))))
+	    (dolist (file (directory-files
+			   out-dir t
+			   (concat (regexp-quote base-name)
+				   "\\(?:\\.[0-9]+\\)?"
+				   "\\."
+				   (regexp-opt org-latex-logfiles-extensions))))
+	      (delete-file file)))
 	  (message (concat "Process completed"
 			   (if (not errors) "."
 			     (concat " with errors: " errors)))))

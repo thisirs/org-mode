@@ -1,6 +1,6 @@
 ;;; test-ob-sh.el
 
-;; Copyright (c) 2010-2013 Eric Schulte
+;; Copyright (c) 2010-2014 Eric Schulte
 ;; Authors: Eric Schulte
 
 ;; This file is not part of GNU Emacs.
@@ -24,7 +24,7 @@
 
 ;;; Code:
 (org-test-for-executable "sh")
-(unless (featurep 'ob-sh)
+(unless (featurep 'ob-shell)
   (signal 'missing-test-dependency "Support for Sh code blocks"))
 
 (ert-deftest test-ob-sh/dont-insert-spaces-on-expanded-bodies ()
