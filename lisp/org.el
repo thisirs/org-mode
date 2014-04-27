@@ -18128,63 +18128,61 @@ When a buffer is unmodified, it is just killed.  When modified, it is saved
 	(inhibit-read-only t)
 	(org-inhibit-startup org-agenda-inhibit-startup)
 	(rea (concat ":" org-archive-tag ":"))
-	file re pos)
+	file re)
     (setq org-tag-alist-for-agenda nil
 	  org-tag-groups-alist-for-agenda nil)
-    (save-window-excursion
-      (save-restriction
-	(while (setq file (pop files))
-	  (catch 'nextfile
-	    (if (bufferp file)
-		(set-buffer file)
-	      (org-check-agenda-file file)
-	      (set-buffer (org-get-agenda-file-buffer file)))
-	    (widen)
-	    (org-set-regexps-and-options-for-tags)
-	    (setq pos (point))
-	    (goto-char (point-min))
-	    (let ((case-fold-search t))
-	      (when (search-forward "#+setupfile" nil t)
-		;; Don't set all regexps and options systematically as
-		;; this is only run for setting agenda tags from setup
-		;; file
-		(org-set-regexps-and-options)))
-	    (or (memq 'category org-agenda-ignore-drawer-properties)
-		(org-refresh-category-properties))
-	    (or (memq 'effort org-agenda-ignore-drawer-properties)
-		(org-refresh-properties org-effort-property 'org-effort))
-	    (or (memq 'appt org-agenda-ignore-drawer-properties)
-		(org-refresh-properties "APPT_WARNTIME" 'org-appt-warntime))
-	    (setq org-todo-keywords-for-agenda
-		  (append org-todo-keywords-for-agenda org-todo-keywords-1))
-	    (setq org-done-keywords-for-agenda
-		  (append org-done-keywords-for-agenda org-done-keywords))
-	    (setq org-todo-keyword-alist-for-agenda
-		  (append org-todo-keyword-alist-for-agenda org-todo-key-alist))
-	    (setq org-tag-alist-for-agenda
-		  (org-uniquify
-		   (append org-tag-alist-for-agenda
-			   org-tag-alist
-			   org-tag-persistent-alist)))
-	    (if org-group-tags
-		(setq org-tag-groups-alist-for-agenda
-		      (org-uniquify-alist
-		       (append org-tag-groups-alist-for-agenda org-tag-groups-alist))))
-	    (org-with-silent-modifications
-	     (save-excursion
-	       (remove-text-properties (point-min) (point-max) pall)
-	       (when org-agenda-skip-archived-trees
+    (while (setq file (pop files))
+      (catch 'nextfile
+	(with-current-buffer (if (bufferp file)
+				 file
+			       (org-check-agenda-file file)
+			       (org-get-agenda-file-buffer file))
+	  (save-restriction
+	    (save-excursion
+	      (widen)
+	      (org-set-regexps-and-options-for-tags)
+	      (goto-char (point-min))
+	      (let ((case-fold-search t))
+		(when (search-forward "#+setupfile" nil t)
+		  ;; Don't set all regexps and options systematically as
+		  ;; this is only run for setting agenda tags from setup
+		  ;; file
+		  (org-set-regexps-and-options)))
+	      (or (memq 'category org-agenda-ignore-drawer-properties)
+		  (org-refresh-category-properties))
+	      (or (memq 'effort org-agenda-ignore-drawer-properties)
+		  (org-refresh-properties org-effort-property 'org-effort))
+	      (or (memq 'appt org-agenda-ignore-drawer-properties)
+		  (org-refresh-properties "APPT_WARNTIME" 'org-appt-warntime))
+	      (setq org-todo-keywords-for-agenda
+		    (append org-todo-keywords-for-agenda org-todo-keywords-1))
+	      (setq org-done-keywords-for-agenda
+		    (append org-done-keywords-for-agenda org-done-keywords))
+	      (setq org-todo-keyword-alist-for-agenda
+		    (append org-todo-keyword-alist-for-agenda org-todo-key-alist))
+	      (setq org-tag-alist-for-agenda
+		    (org-uniquify
+		     (append org-tag-alist-for-agenda
+			     org-tag-alist
+			     org-tag-persistent-alist)))
+	      (if org-group-tags
+		  (setq org-tag-groups-alist-for-agenda
+			(org-uniquify-alist
+			 (append org-tag-groups-alist-for-agenda org-tag-groups-alist))))
+	      (org-with-silent-modifications
+	       (save-excursion
+		 (remove-text-properties (point-min) (point-max) pall)
+		 (when org-agenda-skip-archived-trees
+		   (goto-char (point-min))
+		   (while (re-search-forward rea nil t)
+		     (if (org-at-heading-p t)
+			 (add-text-properties (point-at-bol) (org-end-of-subtree t) pa))))
 		 (goto-char (point-min))
-		 (while (re-search-forward rea nil t)
-		   (if (org-at-heading-p t)
-		       (add-text-properties (point-at-bol) (org-end-of-subtree t) pa))))
-	       (goto-char (point-min))
-	       (setq re (format org-heading-keyword-regexp-format
-				org-comment-string))
-	       (while (re-search-forward re nil t)
-		 (add-text-properties
-		  (match-beginning 0) (org-end-of-subtree t) pc))))
-	    (goto-char pos)))))
+		 (setq re (format org-heading-keyword-regexp-format
+				  org-comment-string))
+		 (while (re-search-forward re nil t)
+		   (add-text-properties
+		    (match-beginning 0) (org-end-of-subtree t) pc)))))))))
     (setq org-todo-keywords-for-agenda
           (org-uniquify org-todo-keywords-for-agenda))
     (setq org-todo-keyword-alist-for-agenda
