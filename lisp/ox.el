@@ -106,20 +106,20 @@ BLOB is the element or object considered."
   "Maximum nesting depth for headlines, counting from 0.")
 
 (defconst org-export-options-alist
-  '((:author "AUTHOR" nil user-full-name t)
-    (:creator "CREATOR" nil org-export-creator-string)
+  '((:title "TITLE" nil nil space)
     (:date "DATE" nil nil t)
-    (:description "DESCRIPTION" nil nil newline)
+    (:author "AUTHOR" nil user-full-name t)
     (:email "EMAIL" nil user-mail-address t)
-    (:exclude-tags "EXCLUDE_TAGS" nil org-export-exclude-tags split)
-    (:headline-levels nil "H" org-export-headline-levels)
+    (:description "DESCRIPTION" nil nil newline)
     (:keywords "KEYWORDS" nil nil space)
     (:language "LANGUAGE" nil org-export-default-language t)
+    (:select-tags "SELECT_TAGS" nil org-export-select-tags split)
+    (:exclude-tags "EXCLUDE_TAGS" nil org-export-exclude-tags split)
+    (:creator "CREATOR" nil org-export-creator-string)
+    (:headline-levels nil "H" org-export-headline-levels)
     (:preserve-breaks nil "\\n" org-export-preserve-breaks)
     (:section-numbers nil "num" org-export-with-section-numbers)
-    (:select-tags "SELECT_TAGS" nil org-export-select-tags split)
     (:time-stamp-file nil "timestamp" org-export-time-stamp-file)
-    (:title "TITLE" nil nil space)
     (:with-archived-trees nil "arch" org-export-with-archived-trees)
     (:with-author nil "author" org-export-with-author)
     (:with-clocks nil "c" org-export-with-clocks)
@@ -221,7 +221,6 @@ way they are handled must be hard-coded into
     (:filter-planning . org-export-filter-planning-functions)
     (:filter-property-drawer . org-export-filter-property-drawer-functions)
     (:filter-quote-block . org-export-filter-quote-block-functions)
-    (:filter-quote-section . org-export-filter-quote-section-functions)
     (:filter-radio-target . org-export-filter-radio-target-functions)
     (:filter-section . org-export-filter-section-functions)
     (:filter-special-block . org-export-filter-special-block-functions)
@@ -263,6 +262,16 @@ whose extension is either \"png\", \"jpeg\", \"jpg\", \"gif\",
 \"tiff\", \"tif\", \"xbm\", \"xpm\", \"pbm\", \"pgm\" or \"ppm\".
 See `org-export-inline-image-p' for more information about
 rules.")
+
+(defconst org-export-ignored-local-variables
+  '(org-font-lock-keywords
+    org-element--cache org-element--cache-objects org-element--cache-sync-keys
+    org-element--cache-sync-requests org-element--cache-sync-timer)
+  "List of variables not copied through upon buffer duplication.
+Export process takes place on a copy of the original buffer.
+When this copy is created, all Org related local variables not in
+this list are copied to the new buffer.  Variables with an
+unreadable value are also ignored.")
 
 (defvar org-export-async-debug nil
   "Non-nil means asynchronous export process should leave data behind.
@@ -308,6 +317,7 @@ there is no export process in progress.
 
 It can be used to teach Babel blocks how to act differently
 according to the back-end used.")
+
 
 
 ;;; User-configurable Variables
@@ -742,7 +752,7 @@ e.g. \"tasks:nil\"."
 
 (defcustom org-export-time-stamp-file t
   "Non-nil means insert a time stamp into the exported file.
-The time stamp shows when the file was created. This option can
+The time stamp shows when the file was created.  This option can
 also be set with the OPTIONS keyword, e.g. \"timestamp:nil\"."
   :group 'org-export-general
   :type 'boolean)
@@ -807,10 +817,12 @@ HTML code while every other back-end will ignore it."
   :package-version '(Org . "8.0")
   :type 'coding-system)
 
-(defcustom org-export-copy-to-kill-ring 'if-interactive
-  "Should we push exported content to the kill ring?"
+(defcustom org-export-copy-to-kill-ring nil
+  "Non-nil means pushing export output to the kill ring.
+This variable is ignored during asynchronous export."
   :group 'org-export-general
-  :version "24.3"
+  :version "25.1"
+  :package-version '(Org . "8.3")
   :type '(choice
 	  (const :tag "Always" t)
 	  (const :tag "When export is done interactively" if-interactive)
@@ -1637,10 +1649,11 @@ for export.  Return options as a plist."
      ;; Make sure point is at a heading.
      (if (org-at-heading-p) (org-up-heading-safe) (org-back-to-heading t))
      ;; Take care of EXPORT_TITLE. If it isn't defined, use headline's
-     ;; title as its fallback value.
+     ;; title (with no todo keyword, priority cookie or tag) as its
+     ;; fallback value.
      (when (setq prop (or (org-entry-get (point) "EXPORT_TITLE")
-			  (progn (looking-at org-todo-line-regexp)
-				 (org-match-string-no-properties 3))))
+			  (progn (looking-at org-complex-heading-regexp)
+				 (org-match-string-no-properties 4))))
        (setq plist
 	     (plist-put
 	      plist :title
@@ -2368,8 +2381,8 @@ returned by the function."
 				       ?\s)))))))))))
 	  (when new
 	    ;; Splice NEW at BLOB location in parse tree.
-	    (dolist (e new) (org-element-insert-before e blob))
-	    (org-element-extract-element blob))))
+	    (dolist (e new (org-element-extract-element blob))
+	      (unless (string= e "") (org-element-insert-before e blob))))))
     info)
   ;; Return modified parse tree.
   data)
@@ -2652,12 +2665,6 @@ Each filter is called with three arguments: the transcoded quote
 data, as a string, the back-end, as a symbol, and the
 communication channel, as a plist.  It must return a string or
 nil.")
-
-(defvar org-export-filter-quote-section-functions nil
-  "List of functions applied to a transcoded quote-section.
-Each filter is called with three arguments: the transcoded data,
-as a string, the back-end, as a symbol, and the communication
-channel, as a plist.  It must return a string or nil.")
 
 (defvar org-export-filter-section-functions nil
   "List of functions applied to a transcoded section.
@@ -2970,11 +2977,7 @@ The function assumes BUFFER's major mode is `org-mode'."
 	       (when (consp entry)
 		 (let ((var (car entry))
 		       (val (cdr entry)))
-		   (and (not (memq var '(org-font-lock-keywords
-					 ;; Do not share cache across
-					 ;; buffers as values are
-					 ;; modified by side effect.
-					 org-element--cache)))
+		   (and (not (memq var org-export-ignored-local-variables))
 			(or (memq var
 				  '(default-directory
 				     buffer-file-name
@@ -3208,15 +3211,16 @@ locally for the subtree through node properties."
 	      (org-completing-read
 	       "Options category: "
 	       (cons "default"
-		     (mapcar (lambda (b)
-			       (symbol-name (org-export-backend-name b)))
-			     org-export--registered-backends))))))
+		     (mapcar #'(lambda (b)
+				 (symbol-name (org-export-backend-name b)))
+			     org-export--registered-backends))
+	       nil t))))
 	options keywords)
     ;; Populate OPTIONS and KEYWORDS.
     (dolist (entry (cond ((eq backend 'default) org-export-options-alist)
 			 ((org-export-backend-p backend)
-			  (org-export-get-all-options backend))
-			 (t (org-export-get-all-options
+			  (org-export-backend-options backend))
+			 (t (org-export-backend-options
 			     (org-export-get-backend backend)))))
       (let ((keyword (nth 1 entry))
             (option (nth 2 entry)))
@@ -3224,43 +3228,14 @@ locally for the subtree through node properties."
          (keyword (unless (assoc keyword keywords)
                     (let ((value
                            (if (eq (nth 4 entry) 'split)
-                               (mapconcat 'identity (eval (nth 3 entry)) " ")
+                               (mapconcat #'identity (eval (nth 3 entry)) " ")
                              (eval (nth 3 entry)))))
                       (push (cons keyword value) keywords))))
          (option (unless (assoc option options)
                    (push (cons option (eval (nth 3 entry))) options))))))
     ;; Move to an appropriate location in order to insert options.
     (unless subtreep (beginning-of-line))
-    ;; First get TITLE, DATE, AUTHOR and EMAIL if they belong to the
-    ;; list of available keywords.
-    (when (assoc "TITLE" keywords)
-      (let ((title
-	     (or (let ((visited-file (buffer-file-name (buffer-base-buffer))))
-		   (and visited-file
-			(file-name-sans-extension
-			 (file-name-nondirectory visited-file))))
-		 (buffer-name (buffer-base-buffer)))))
-	(if (not subtreep) (insert (format "#+TITLE: %s\n" title))
-	  (org-entry-put node "EXPORT_TITLE" title))))
-    (when (assoc "DATE" keywords)
-      (let ((date (with-temp-buffer (org-insert-time-stamp (current-time)))))
-	(if (not subtreep) (insert "#+DATE: " date "\n")
-	  (org-entry-put node "EXPORT_DATE" date))))
-    (when (assoc "AUTHOR" keywords)
-      (let ((author (cdr (assoc "AUTHOR" keywords))))
-	(if subtreep (org-entry-put node "EXPORT_AUTHOR" author)
-	  (insert
-	   (format "#+AUTHOR:%s\n"
-		   (if (not (org-string-nw-p author)) ""
-		     (concat " " author)))))))
-    (when (assoc "EMAIL" keywords)
-      (let ((email (cdr (assoc "EMAIL" keywords))))
-	(if subtreep (org-entry-put node "EXPORT_EMAIL" email)
-	  (insert
-	   (format "#+EMAIL:%s\n"
-		   (if (not (org-string-nw-p email)) ""
-		     (concat " " email)))))))
-    ;; Then (multiple) OPTIONS lines.  Never go past fill-column.
+    ;; First (multiple) OPTIONS lines.  Never go past fill-column.
     (when options
       (let ((items
 	     (mapcar
@@ -3278,15 +3253,26 @@ locally for the subtree through node properties."
 		  (insert " " item)
 		  (incf width (1+ (length item))))))
 	    (insert "\n")))))
-    ;; And the rest of keywords.
-    (dolist (key (sort keywords (lambda (k1 k2) (string< (car k1) (car k2)))))
-      (unless (member (car key) '("TITLE" "DATE" "AUTHOR" "EMAIL"))
-        (let ((val (cdr key)))
-          (if subtreep (org-entry-put node (concat "EXPORT_" (car key)) val)
-            (insert
-             (format "#+%s:%s\n"
-                     (car key)
-                     (if (org-string-nw-p val) (format " %s" val) "")))))))))
+    ;; Then the rest of keywords, in the order specified in either
+    ;; `org-export-options-alist' or respective export back-ends.
+    (dolist (key (nreverse keywords))
+      (let ((val (cond ((equal (car key) "DATE")
+			(or (cdr key)
+			    (with-temp-buffer
+			      (org-insert-time-stamp (current-time)))))
+		       ((equal (car key) "TITLE")
+			(or (let ((visited-file
+				   (buffer-file-name (buffer-base-buffer))))
+			      (and visited-file
+				   (file-name-sans-extension
+				    (file-name-nondirectory visited-file))))
+			    (buffer-name (buffer-base-buffer))))
+		       (t (cdr key)))))
+	(if subtreep (org-entry-put node (concat "EXPORT_" (car key)) val)
+	  (insert
+	   (format "#+%s:%s\n"
+		   (car key)
+		   (if (org-string-nw-p val) (format " %s" val) ""))))))))
 
 (defun org-export-expand-include-keyword (&optional included dir)
   "Expand every include keyword in buffer.
@@ -3295,7 +3281,9 @@ with their line restriction, when appropriate.  It is used to
 avoid infinite recursion.  Optional argument DIR is the current
 working directory.  It is used to properly resolve relative
 paths."
-  (let ((case-fold-search t))
+  (let ((case-fold-search t)
+	(file-prefix (make-hash-table :test #'equal))
+	(current-prefix 0))
     (goto-char (point-min))
     (while (re-search-forward "^[ \t]*#\\+INCLUDE:" nil t)
       (let ((element (save-match-data (org-element-at-point))))
@@ -3365,13 +3353,16 @@ paths."
 		 (with-temp-buffer
 		   (let ((org-inhibit-startup t)) (org-mode))
 		   (insert
-		    (org-export--prepare-file-contents file lines ind minlevel))
+		    (org-export--prepare-file-contents
+		     file lines ind minlevel
+		     (or (gethash file file-prefix)
+			 (puthash file (incf current-prefix) file-prefix))))
 		   (org-export-expand-include-keyword
 		    (cons (list file lines) included)
 		    (file-name-directory file))
 		   (buffer-string)))))))))))))
 
-(defun org-export--prepare-file-contents (file &optional lines ind minlevel)
+(defun org-export--prepare-file-contents (file &optional lines ind minlevel id)
   "Prepare the contents of FILE for inclusion and return them as a string.
 
 When optional argument LINES is a string specifying a range of
@@ -3385,7 +3376,12 @@ headline encountered.
 
 Optional argument MINLEVEL, when non-nil, is an integer
 specifying the level that any top-level headline in the included
-file should have."
+file should have.
+
+Optional argument ID is an integer that will be inserted before
+each footnote definition and reference if FILE is an Org file.
+This is useful to avoid conflicts when more than one Org file
+with footnotes is included in a document."
   (with-temp-buffer
     (insert-file-contents file)
     (when lines
@@ -3444,6 +3440,22 @@ file should have."
 	       (org-map-entries
 		(lambda () (if (< offset 0) (delete-char (abs offset))
 			(insert (make-string offset ?*)))))))))))
+    ;; Append ID to all footnote references and definitions, so they
+    ;; become file specific and cannot collide with footnotes in other
+    ;; included files.
+    (when id
+      (goto-char (point-min))
+      (while (re-search-forward org-footnote-re nil t)
+	(let ((reference (org-element-context)))
+	  (when (memq (org-element-type reference)
+		      '(footnote-reference footnote-definition))
+	    (goto-char (org-element-property :begin reference))
+	    (forward-char)
+	    (let ((label (org-element-property :label reference)))
+	      (cond ((not label))
+		    ((org-string-match-p "\\`[0-9]+\\'" label)
+		     (insert (format "fn:%d-" id)))
+		    (t (forward-char 3) (insert (format "%d-" id)))))))))
     (org-element-normalize-string (buffer-string))))
 
 (defun org-export-execute-babel-code ()
@@ -3451,8 +3463,7 @@ file should have."
   ;; Get a pristine copy of current buffer so Babel references can be
   ;; properly resolved.
   (let ((reference (org-export-copy-buffer)))
-    (unwind-protect (let ((org-current-export-file reference))
-		      (org-babel-exp-process-buffer))
+    (unwind-protect (org-babel-exp-process-buffer reference)
       (kill-buffer reference))))
 
 (defun org-export--copy-to-kill-ring-p ()
@@ -5200,7 +5211,7 @@ Return the new string."
 ;;;; Topology
 ;;
 ;; Here are various functions to retrieve information about the
-;; neighbourhood of a given element or object.  Neighbours of interest
+;; neighborhood of a given element or object.  Neighbors of interest
 ;; are direct parent (`org-export-get-parent'), parent headline
 ;; (`org-export-get-parent-headline'), first element containing an
 ;; object, (`org-export-get-parent-element'), parent table
@@ -5477,6 +5488,9 @@ them."
      ("ru" :html "&#1056;&#1072;&#1089;&#1087;&#1077;&#1095;&#1072;&#1090;&#1082;&#1072; %d.:"
       :utf-8 "Распечатка %d.:")
      ("zh-CN" :html "&#20195;&#30721;%d&nbsp;" :utf-8 "代码%d "))
+    ("References"
+     ("fr" :ascii "References" :default "Références")
+     ("de" :default "Quellen"))
     ("See section %s"
      ("da" :default "jævnfør afsnit %s")
      ("de" :default "siehe Abschnitt %s")

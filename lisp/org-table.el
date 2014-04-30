@@ -1247,6 +1247,7 @@ is always the old value."
 (defun org-table-field-info (arg)
   "Show info about the current field, and highlight any reference at point."
   (interactive "P")
+  (unless (org-at-table-p) (user-error "Not at a table"))
   (org-table-get-specials)
   (save-excursion
     (let* ((pos (point))
@@ -1641,7 +1642,8 @@ should be in the last line to be included into the sorting.
 
 The command then prompts for the sorting type which can be
 alphabetically, numerically, or by time (as given in a time stamp
-in the field).  Sorting in reverse order is also possible.
+in the field, or as a HH:MM value).  Sorting in reverse order is
+also possible.
 
 With prefix argument WITH-CASE, alphabetic sorting will be case-sensitive.
 
@@ -2289,35 +2291,35 @@ KEY is \"@\" or \"$\".  REPLACE is an alist of numbers to replace.
 For all numbers larger than LIMIT, shift them by DELTA."
   (save-excursion
     (goto-char (org-table-end))
-    (let ((case-fold-search t)
-	  (s-end (save-excursion (re-search-forward "^\\S-*$\\|\\'" nil t))))
-      (while (re-search-forward "[ \t]*#\\+tblfm:" s-end t)
-	(let ((msg "The formulas in #+TBLFM have been updated")
-	      (re (concat key "\\([0-9]+\\)"))
-	      (re2
-	       (when remove
-		 (if (or (equal key "$") (equal key "$LR"))
-		     (format "\\(@[0-9]+\\)?%s%d=.*?\\(::\\|$\\)"
-			     (regexp-quote key) remove)
-		   (format "@%d\\$[0-9]+=.*?\\(::\\|$\\)" remove))))
-	      s n a)
-	  (when remove
-	    (while (re-search-forward re2 (point-at-eol) t)
-	      (unless (save-match-data (org-in-regexp "remote([^)]+?)"))
-		(if (equal (char-before (match-beginning 0)) ?.)
-		    (user-error "Change makes TBLFM term %s invalid, use undo to recover"
-				(match-string 0))
-		  (replace-match "")))))
-	  (while (re-search-forward re (point-at-eol) t)
+    (while (let ((case-fold-search t)) (looking-at "[ \t]*#\\+tblfm:"))
+      (let ((msg "The formulas in #+TBLFM have been updated")
+	    (re (concat key "\\([0-9]+\\)"))
+	    (re2
+	     (when remove
+	       (if (or (equal key "$") (equal key "$LR"))
+		   (format "\\(@[0-9]+\\)?%s%d=.*?\\(::\\|$\\)"
+			   (regexp-quote key) remove)
+		 (format "@%d\\$[0-9]+=.*?\\(::\\|$\\)" remove))))
+	    s n a)
+	(when remove
+	  (while (re-search-forward re2 (point-at-eol) t)
 	    (unless (save-match-data (org-in-regexp "remote([^)]+?)"))
-	      (setq s (match-string 1) n (string-to-number s))
-	      (cond
-	       ((setq a (assoc s replace))
-		(replace-match (concat key (cdr a)) t t)
-		(message msg))
-	       ((and limit (> n limit))
-		(replace-match (concat key (int-to-string (+ n delta))) t t)
-		(message msg))))))))))
+	      (if (equal (char-before (match-beginning 0)) ?.)
+		  (user-error
+		   "Change makes TBLFM term %s invalid, use undo to recover"
+		   (match-string 0))
+		(replace-match "")))))
+	(while (re-search-forward re (point-at-eol) t)
+	  (unless (save-match-data (org-in-regexp "remote([^)]+?)"))
+	    (setq s (match-string 1) n (string-to-number s))
+	    (cond
+	     ((setq a (assoc s replace))
+	      (replace-match (concat key (cdr a)) t t)
+	      (message msg))
+	     ((and limit (> n limit))
+	      (replace-match (concat key (int-to-string (+ n delta))) t t)
+	      (message msg))))))
+      (forward-line))))
 
 (defun org-table-get-specials ()
   "Get the column names and local parameters for this table."
@@ -2657,6 +2659,7 @@ not overwrite the stored one."
 	;; Check for old vertical references
 	(setq form (org-table-rewrite-old-row-references form))
 	;; Insert remote references
+	(setq form (org-table-remote-reference-indirection form))
 	(while (string-match "\\<remote([ \t]*\\([-_a-zA-Z0-9]+\\)[ \t]*,[ \t]*\\([^\n)]+\\))" form)
 	  (setq form
 		(replace-match
@@ -5009,6 +5012,36 @@ list of the fields in the rectangle."
 		    (save-match-data
 		      (org-table-get-range (match-string 0 form) tbeg 1))
 		  form)))))))))
+
+(defun org-table-remote-reference-indirection (form)
+  "Return formula with table remote references substituted by indirection.
+For example \"remote($1, @>$2)\" => \"remote(year_2013, @>$1)\".
+This indirection works only with the format @ROW$COLUMN.  The
+format \"B3\" is not supported because it can not be
+distinguished from a plain table name or ID."
+  (let ((start 0))
+    (while (string-match (concat
+			  ;; Same as in `org-table-eval-formula'.
+			  "\\<remote([ \t]*\\("
+			  ;; Allow "$1", "@<", "$-1", "@<<$1" etc.
+			  "[@$][^ \t,]+"
+			  ;; Same as in `org-table-eval-formula'.
+			  "\\)[ \t]*,[ \t]*\\([^\n)]+\\))")
+			 form
+			 start)
+      ;; The position of the character as far as possible to the right
+      ;; that will not be replaced and particularly not be shifted by
+      ;; `replace-match'.
+      (setq start (match-beginning 1))
+      ;; Substitute the remote reference with the value found in the
+      ;; field.
+      (setq form
+	    (replace-match
+	     (save-match-data
+	       (org-table-get-range (org-table-formula-handle-first/last-rc
+				     (match-string 1 form))))
+	     t t form 1))))
+  form)
 
 (defmacro org-define-lookup-function (mode)
   (let ((mode-str (symbol-name mode))

@@ -79,7 +79,6 @@
     (planning . org-html-planning)
     (property-drawer . org-html-property-drawer)
     (quote-block . org-html-quote-block)
-    (quote-section . org-html-quote-section)
     (radio-target . org-html-radio-target)
     (section . org-html-section)
     (special-block . org-html-special-block)
@@ -109,31 +108,30 @@
 	      (if a (org-html-export-to-html t s v b)
 		(org-open-file (org-html-export-to-html nil s v b)))))))
   :options-alist
-  '((:html-extension nil nil org-html-extension)
-    (:html-link-org-as-html nil nil org-html-link-org-files-as-html)
+  '((:creator "CREATOR" nil org-html-creator-string)
     (:html-doctype "HTML_DOCTYPE" nil org-html-doctype)
-    (:html-container "HTML_CONTAINER" nil org-html-container-element)
-    (:html-html5-fancy nil "html5-fancy" org-html-html5-fancy)
-    (:html-link-use-abs-url nil "html-link-use-abs-url" org-html-link-use-abs-url)
     (:html-link-home "HTML_LINK_HOME" nil org-html-link-home)
     (:html-link-up "HTML_LINK_UP" nil org-html-link-up)
-    (:html-mathjax "HTML_MATHJAX" nil "" space)
-    (:html-postamble nil "html-postamble" org-html-postamble)
-    (:html-preamble nil "html-preamble" org-html-preamble)
     (:html-head "HTML_HEAD" nil org-html-head newline)
     (:html-head-extra "HTML_HEAD_EXTRA" nil org-html-head-extra newline)
+    (:html-container "HTML_CONTAINER" nil org-html-container-element)
+    (:html-mathjax "HTML_MATHJAX" nil "" space)
+    (:infojs-opt "INFOJS_OPT" nil nil)
+    ;; Retrieve LaTeX header for fragments.
+    (:latex-header "LATEX_HEADER" nil nil newline)
+    (:html-extension nil nil org-html-extension)
+    (:html-link-org-as-html nil nil org-html-link-org-files-as-html)
+    (:html-html5-fancy nil "html5-fancy" org-html-html5-fancy)
+    (:html-link-use-abs-url nil "html-link-use-abs-url" org-html-link-use-abs-url)
+    (:html-postamble nil "html-postamble" org-html-postamble)
+    (:html-preamble nil "html-preamble" org-html-preamble)
     (:html-head-include-default-style nil "html-style" org-html-head-include-default-style)
     (:html-head-include-scripts nil "html-scripts" org-html-head-include-scripts)
     (:html-table-attributes nil nil org-html-table-default-attributes)
     (:html-table-row-tags nil nil org-html-table-row-tags)
     (:html-xml-declaration nil nil org-html-xml-declaration)
     (:html-inline-images nil nil org-html-inline-images)
-    (:infojs-opt "INFOJS_OPT" nil nil)
-    ;; Redefine regular options.
-    (:creator "CREATOR" nil org-html-creator-string)
-    (:with-latex nil "tex" org-html-with-latex)
-    ;; Retrieve LaTeX header for fragments.
-    (:latex-header "LATEX_HEADER" nil nil newline)))
+    (:with-latex nil "tex" org-html-with-latex)))
 
 
 ;;; Internal Variables
@@ -171,10 +169,8 @@
     "progress" "section" "video")
   "New elements in html5.
 
-<hgroup> is not included because it's currently impossible to
-wrap special blocks around multiple headlines. For other blocks
-that should contain headlines, use the HTML_CONTAINER property on
-the headline itself.")
+For blocks that should contain headlines, use the HTML_CONTAINER
+property on the headline itself.")
 
 (defconst org-html-special-string-regexps
   '(("\\\\-" . "&#x00ad;")		; shy
@@ -458,6 +454,7 @@ export back-end currently used."
 	      (not org-html-use-infojs)
 	      (and (eq org-html-use-infojs 'when-configured)
 		   (or (not (plist-get exp-plist :infojs-opt))
+		       (string= "" (plist-get exp-plist :infojs-opt))
 		       (string-match "\\<view:nil\\>"
 				     (plist-get exp-plist :infojs-opt)))))
     (let* ((template org-html-infojs-template)
@@ -648,10 +645,10 @@ The function result will be used in the section format string."
 
 ;;;; HTML-specific
 
-(defcustom org-html-allow-name-attribute-in-anchors t
+(defcustom org-html-allow-name-attribute-in-anchors nil
   "When nil, do not set \"name\" attribute in anchors.
-By default, anchors are formatted with both \"id\" and \"name\"
-attributes, when appropriate."
+By default, when appropriate, anchors are formatted with \"id\"
+but without \"name\" attribute."
   :group 'org-export-html
   :version "24.4"
   :package-version '(Org . "8.0")
@@ -760,9 +757,10 @@ link's path."
 
 (defcustom org-html-htmlize-output-type 'inline-css
   "Output type to be used by htmlize when formatting code snippets.
-Choices are `css', to export the CSS selectors only, or `inline-css', to
-export the CSS attribute values inline in the HTML.  We use as default
-`inline-css', in order to make the resulting HTML self-containing.
+Choices are `css' to export the CSS selectors only,`inline-css'
+to export the CSS attribute values inline in the HTML or `nil' to
+export plain text.  We use as default `inline-css', in order to
+make the resulting HTML self-containing.
 
 However, this will fail when using Emacs in batch mode for export, because
 then no rich font definitions are in place.  It will also not be good if
@@ -775,7 +773,7 @@ all the faces you are interested in are defined, for example by loading files
 in all modes you want.  Then, use the command
 \\[org-html-htmlize-generate-css] to extract class definitions."
   :group 'org-export-html
-  :type '(choice (const css) (const inline-css)))
+  :type '(choice (const css) (const inline-css) (const nil)))
 
 (defcustom org-html-htmlize-font-prefix "org-"
   "The prefix for CSS class names for htmlize font specifications."
@@ -798,7 +796,7 @@ When exporting to HTML5, these values will be disregarded."
 		:value-type (string :tag "Value")))
 
 (defcustom org-html-table-header-tags '("<th scope=\"%s\"%s>" . "</th>")
-  "The opening tag for table header fields.
+  "The opening and ending tags for table header fields.
 This is customizable so that alignment options can be specified.
 The first %s will be filled with the scope of the field, either row or col.
 The second %s will be replaced by a style entry to align the field.
@@ -808,7 +806,7 @@ See also the variable `org-html-table-align-individual-fields'."
   :type '(cons (string :tag "Opening tag") (string :tag "Closing tag")))
 
 (defcustom org-html-table-data-tags '("<td%s>" . "</td>")
-  "The opening tag for table data fields.
+  "The opening and ending tags for table data fields.
 This is customizable so that alignment options can be specified.
 The first %s will be filled with the scope of the field, either row or col.
 The second %s will be replaced by a style entry to align the field.
@@ -923,7 +921,10 @@ publishing, with :html-doctype."
   :group 'org-export-html
   :version "24.4"
   :package-version '(Org . "8.0")
-  :type 'string)
+  :type (append
+	 '(choice)
+	 (mapcar (lambda (x) `(const ,(car x))) org-html-doctype-alist)
+	 '((string :tag "Custom doctype" ))))
 
 (defcustom org-html-html5-fancy nil
   "Non-nil means using new HTML5 elements.
@@ -974,6 +975,41 @@ org-info.js for your website."
 		     (string :tag "element") (string :tag "     id"))
 	       (list :tag "Postamble" (const :format "" postamble)
 		     (string :tag "     id") (string :tag "element"))))
+
+(defconst org-html-checkbox-types
+  '((unicode .
+     ((on . "&#x2611;") (off . "&#x2610;") (trans . "&#x2610;")))
+    (ascii .
+     ((on . "<code>[X]</code>")
+      (off . "<code>[&#xa0;]</code>")
+      (trans . "<code>[-]</code>")))
+    (html .
+	  ((on . "<input type='checkbox' checked='checked' />")
+	  (off . "<input type='checkbox' />")
+	  (trans . "<input type='checkbox' />"))))
+  "Alist of checkbox types.
+The cdr of each entry is an alist list three checkbox types for
+HTML export: `on', `off' and `trans'.
+
+The choices are:
+  `unicode' Unicode characters (HTML entities)
+  `ascii'   ASCII characters
+  `html'    HTML checkboxes
+
+Note that only the ascii characters implement tri-state
+checkboxes. The other two use the `off' checkbox for `trans'.")
+
+(defcustom org-html-checkbox-type 'ascii
+  "The type of checkboxes to use for HTML export.
+See `org-html-checkbox-types' for for the values used for each
+option."
+  :group 'org-export-html
+  :version "24.4"
+  :package-version '(Org . "8.0")
+  :type '(choice
+	  (const :tag "ASCII characters" ascii)
+	  (const :tag "Unicode characters" unicode)
+	  (const :tag "HTML checkboxes" html)))
 
 (defcustom org-html-metadata-timestamp-format "%Y-%m-%d %a %H:%M"
   "Format used for timestamps in preamble, postamble and metadata.
@@ -1368,17 +1404,36 @@ SOURCE is a string specifying the location of the image.
 ATTRIBUTES is a plist, as returned by
 `org-export-read-attribute'.  INFO is a plist used as
 a communication channel."
-  (org-html-close-tag
-   "img"
-   (org-html--make-attribute-string
-    (org-combine-plists
-     (list :src source
-	   :alt (if (string-match-p "^ltxpng/" source)
-		    (org-html-encode-plain-text
-		     (org-find-text-property-in-string 'org-latex-src source))
-		  (file-name-nondirectory source)))
-     attributes))
-   info))
+  (if (string= "svg" (file-name-extension source))
+      (org-html--svg-image source attributes info)
+    (org-html-close-tag
+     "img"
+     (org-html--make-attribute-string
+      (org-combine-plists
+       (list :src source
+	     :alt (if (string-match-p "^ltxpng/" source)
+		      (org-html-encode-plain-text
+		       (org-find-text-property-in-string 'org-latex-src source))
+		    (file-name-nondirectory source)))
+       attributes))
+     info)))
+
+(defun org-html--svg-image (source attributes info)
+  "Return \"object\" appropriate for embedding svg file SOURCE
+with assoicated ATTRIBUTES. INFO is a plist used as a
+communication channel.
+
+The special attribute \"fallback\" can be used to specify a fallback
+image file to use if the object embedding is not supported."
+  (let ((fallback (plist-get attributes :fallback))
+	(attrs (org-html--make-attribute-string
+		(plist-put attributes :fallback nil))))
+  (format "<object type=\"image/svg+xml\" data=\"%s\" %s>\n%s</object>"
+	  source attrs
+	  (if fallback
+	      (org-html-close-tag
+	       "img" (format "src=\"%s\" %s" fallback attrs) info)
+	    "Sorry, your browser does not support SVG."))))
 
 (defun org-html--textarea-block (element)
   "Transcode ELEMENT into a textarea block.
@@ -1839,6 +1894,10 @@ is the language used for CODE, as a string, or nil."
      ((not (and (require 'htmlize nil t) (fboundp 'htmlize-region-for-paste)))
       ;; Emit a warning.
       (message "Cannot fontify src block (htmlize.el >= 1.34 required)")
+      ;; Simple transcoding.
+      (org-html-encode-plain-text code))
+     ;; Case 3: plain text explicitly set
+     ((not org-html-htmlize-output-type)
       ;; Simple transcoding.
       (org-html-encode-plain-text code))
      (t
@@ -2417,18 +2476,22 @@ contextual information."
 
 ;;;; Item
 
-(defun org-html-checkbox (checkbox)
-  "Format CHECKBOX into HTML."
-  (case checkbox (on "<code>[X]</code>")
-	(off "<code>[&#xa0;]</code>")
-	(trans "<code>[-]</code>")
-	(t "")))
+(defun org-html-checkbox (checkbox info)
+  "Format CHECKBOX into HTML.
+INFO is a plist holding contextual information.  See
+`org-html-checkbox-type' for customization options."
+  (cdr (assq checkbox
+	     (cdr (assq org-html-checkbox-type org-html-checkbox-types)))))
 
 (defun org-html-format-list-item (contents type checkbox info
 					     &optional term-counter-id
 					     headline)
   "Format a list item into HTML."
-  (let ((checkbox (concat (org-html-checkbox checkbox) (and checkbox " ")))
+  (let ((class (if checkbox
+		   (format " class=\"%s\""
+			   (symbol-name checkbox)) ""))
+	(checkbox (concat (org-html-checkbox checkbox info)
+			  (and checkbox " ")))
 	(br (org-html-close-tag "br" nil info)))
     (concat
      (case type
@@ -2436,20 +2499,20 @@ contextual information."
 	(let* ((counter term-counter-id)
 	       (extra (if counter (format " value=\"%s\"" counter) "")))
 	  (concat
-	   (format "<li%s>" extra)
+	   (format "<li%s%s>" class extra)
 	   (when headline (concat headline br)))))
        (unordered
 	(let* ((id term-counter-id)
 	       (extra (if id (format " id=\"%s\"" id) "")))
 	  (concat
-	   (format "<li%s>" extra)
+	   (format "<li%s%s>" class extra)
 	   (when headline (concat headline br)))))
        (descriptive
 	(let* ((term term-counter-id))
 	  (setq term (or term "(no term)"))
 	  ;; Check-boxes in descriptive lists are associated to tag.
-	  (concat (format "<dt> %s </dt>"
-			  (concat checkbox term))
+	  (concat (format "<dt%s>%s</dt>"
+			  class (concat checkbox term))
 		  "<dd>"))))
      (unless (eq type 'descriptive) checkbox)
      contents
@@ -2670,13 +2733,12 @@ INFO is a plist holding contextual information.  See
 	    (setq raw-path
 		  (funcall link-org-files-as-html-maybe raw-path info))
 	    ;; If file path is absolute, prepend it with protocol
-	    ;; component - "file://".
-	    (cond ((file-name-absolute-p raw-path)
-		   (setq raw-path
-			 (concat "file://" (expand-file-name
-					    raw-path))))
-		  ((and home use-abs-url)
-		   (setq raw-path (concat (file-name-as-directory home) raw-path))))
+	    ;; component - "file:".
+	    (cond
+	     ((file-name-absolute-p raw-path)
+	      (setq raw-path (concat "file:" raw-path)))
+	     ((and home use-abs-url)
+	      (setq raw-path (concat (file-name-as-directory home) raw-path))))
 	    ;; Add search option, if any.  A search option can be
 	    ;; relative to a custom-id or a headline title.  Append
 	    ;; a hash sign to any unresolved option, as it might point
@@ -2722,9 +2784,9 @@ INFO is a plist holding contextual information.  See
       (let ((destination (org-export-resolve-radio-link link info)))
 	(when destination
 	  (format "<a href=\"#%s\"%s>%s</a>"
-		  (org-export-solidify-link-text path)
-		  attributes
-		  (org-export-data (org-element-contents destination) info)))))
+		  (org-export-solidify-link-text
+		   (org-element-property :value destination))
+		  attributes desc))))
      ;; Links pointing to a headline: Find destination and build
      ;; appropriate referencing command.
      ((member type '("custom-id" "fuzzy" "id"))
@@ -2841,6 +2903,8 @@ the plist used as a communication channel."
   (let* ((parent (org-export-get-parent paragraph))
 	 (parent-type (org-element-type parent))
 	 (style '((footnote-definition " class=\"footpara\"")))
+	 (attributes (org-html--make-attribute-string
+		      (org-export-read-attribute :attr_html paragraph)))
 	 (extra (or (cadr (assoc parent-type style)) "")))
     (cond
      ((and (eq (org-element-type parent) 'item)
@@ -2867,7 +2931,10 @@ the plist used as a communication channel."
 	    (label (org-element-property :name paragraph)))
 	(org-html--wrap-image contents info caption label)))
      ;; Regular paragraph.
-     (t (format "<p%s>\n%s</p>" extra contents)))))
+     (t (format "<p%s%s>\n%s</p>"
+		(if (org-string-nw-p attributes)
+		    (concat " " attributes) "")
+		extra contents)))))
 
 ;;;; Plain List
 
@@ -2992,15 +3059,6 @@ holding contextual information."
 CONTENTS holds the contents of the block.  INFO is a plist
 holding contextual information."
   (format "<blockquote>\n%s</blockquote>" contents))
-
-;;;; Quote Section
-
-(defun org-html-quote-section (quote-section contents info)
-  "Transcode a QUOTE-SECTION element from Org to HTML.
-CONTENTS is nil.  INFO is a plist holding contextual information."
-  (let ((value (org-remove-indentation
-		(org-element-property :value quote-section))))
-    (when value (format "<pre>\n%s</pre>" value))))
 
 ;;;; Section
 

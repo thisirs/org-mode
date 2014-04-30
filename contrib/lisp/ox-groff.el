@@ -77,7 +77,6 @@
     (planning . org-groff-planning)
     (property-drawer . org-groff-property-drawer)
     (quote-block . org-groff-quote-block)
-    (quote-section . org-groff-quote-section)
     (radio-target . org-groff-radio-target)
     (section . org-groff-section)
     (special-block . org-groff-special-block)
@@ -1254,12 +1253,8 @@ INFO is a plist holding contextual information.  See
          (path (cond
                 ((member type '("http" "https" "ftp" "mailto"))
                  (concat type ":" raw-path))
-                ((string= type "file")
-                 (when (string-match "\\(.+\\)::.+" raw-path)
-                   (setq raw-path (match-string 1 raw-path)))
-                 (if (file-name-absolute-p raw-path)
-                     (concat "file://" (expand-file-name raw-path))
-                   (concat "file://" raw-path)))
+                ((and (string= type "file") (file-name-absolute-p raw-path))
+                 (concat "file://" raw-path))
                 (t raw-path)))
          protocol)
     (cond
@@ -1275,7 +1270,8 @@ INFO is a plist holding contextual information.  See
       (let ((destination (org-export-resolve-radio-link link info)))
         (when destination
           (format "\\fI [%s] \\fP"
-                  (org-export-solidify-link-text path)))))
+                  (org-export-solidify-link-text
+		   (org-element-property :value destination))))))
 
      ;; Links pointing to a headline: find destination and build
      ;; appropriate referencing command.
@@ -1456,15 +1452,6 @@ holding contextual information."
   (org-groff--wrap-label
    quote-block
    (format ".DS I\n.I\n%s\n.R\n.DE" contents)))
-
-;;; Quote Section
-
-(defun org-groff-quote-section (quote-section contents info)
-  "Transcode a QUOTE-SECTION element from Org to Groff.
-CONTENTS is nil.  INFO is a plist holding contextual information."
-  (let ((value (org-remove-indentation
-                (org-element-property :value quote-section))))
-    (when value (format ".DS L\n\\fI%s\\fP\n.DE\n" value))))
 
 ;;; Radio Target
 

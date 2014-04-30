@@ -554,8 +554,7 @@ reference (with row).  Mode string N."
 (ert-deftest test-org-table/copy-field ()
   "Experiments on how to copy one field into another field.
 See also `test-org-table/remote-reference-access'."
-  (let ((target
-	 "
+  (let ((target "
 | 0                | replace |
 | a b              | replace |
 | c   d            | replace |
@@ -603,7 +602,108 @@ See also `test-org-table/remote-reference-access'."
 "
      1 "#+TBLFM: $2 = if(\"$1\" == \"nan\", string(\"\"), $1); E")))
 
-;; End of table examples and beginning of internal tests.
+(ert-deftest test-org-table/sub-total ()
+  "Grouped rows with sub-total.
+Begin range with \"@II\" to handle multiline header.  Convert
+integer to float with \"+.0\" for sub-total of items c1 and c2.
+Sum empty fields as value zero but without ignoring them for
+\"vlen\" with format specifier \"EN\".  Format possibly empty
+results with the Calc formatter \"f-1\" instead of the printf
+formatter \"%.1f\"."
+  (org-test-table-target-expect
+   "
+|-------+---------+---------|
+| Item  |    Item | Sub-    |
+| name  |   value | total   |
+|-------+---------+---------|
+| a1    |     4.1 | replace |
+| a2    |     8.2 | replace |
+| a3    |         | replace |
+|-------+---------+---------|
+| b1    |    16.0 | replace |
+|-------+---------+---------|
+| c1    |      32 | replace |
+| c2    |      64 | replace |
+|-------+---------+---------|
+| Total | replace | replace |
+|-------+---------+---------|
+"
+   "
+|-------+-------+-------|
+| Item  |  Item |  Sub- |
+| name  | value | total |
+|-------+-------+-------|
+| a1    |   4.1 |       |
+| a2    |   8.2 |       |
+| a3    |       |  12.3 |
+|-------+-------+-------|
+| b1    |  16.0 |  16.0 |
+|-------+-------+-------|
+| c1    |    32 |       |
+| c2    |    64 |  96.0 |
+|-------+-------+-------|
+| Total | 124.3 |       |
+|-------+-------+-------|
+"
+   1 (concat "#+TBLFM: @>$2 = vsum(@II..@>>) ::"
+	     "$3 = if(vlen(@0..@+I) == 1, "
+	     "vsum(@-I$2..@+I$2) +.0, string(\"\")); EN f-1 :: "
+	     "@>$3 = string(\"\")")))
+
+(ert-deftest test-org-table/org-lookup-all ()
+  "Use `org-lookup-all' for several GROUP BY as in SQL and for ranking.
+See also http://orgmode.org/worg/org-tutorials/org-lookups.html ."
+  (let ((data "
+#+NAME: data
+| Purchase | Product | Shop | Rating |
+|----------+---------+------+--------|
+| a        | p1      | s1   |      1 |
+| b        | p1      | s2   |      4 |
+| c        | p2      | s1   |      2 |
+| d        | p3      | s2   |      8 |
+"))
+
+    ;; Product rating and ranking by average purchase from "#+NAME: data"
+    (org-test-table-target-expect
+     (concat data "
+| Product | Rating  | Ranking |
+|---------+---------+---------|
+| p1      | replace | replace |
+| p2      | replace | replace |
+| p3      | replace | replace |
+")
+     (concat data "
+| Product | Rating | Ranking |
+|---------+--------+---------|
+| p1      |    2.5 |       2 |
+| p2      |    2.0 |       3 |
+| p3      |    8.0 |       1 |
+")
+    2 (concat
+       "#+TBLFM: $2 = '(let ((all (org-lookup-all '$1 "
+       "'(remote(data, @I$2..@>$2)) '(remote(data, @I$4..@>$4))))) "
+       "(/ (apply '+ all) (length all) 1.0)); L :: "
+       "$3 = '(+ 1 (length (org-lookup-all $2 '(@I$2..@>$2) nil '<))); N"))
+
+    ;; Shop rating and ranking by average purchase from "#+NAME: data"
+    (org-test-table-target-expect
+     (concat data "
+| Shop | Rating  | Ranking |
+|------+---------+---------|
+| s1   | replace | replace |
+| s2   | replace | replace |
+")
+     (concat data "
+| Shop | Rating | Ranking |
+|------+--------+---------|
+| s1   |    1.5 |       2 |
+| s2   |    6.0 |       1 |
+")
+     2 (concat
+       "#+TBLFM: $2 = '(let ((all (org-lookup-all '$1 "
+       "'(remote(data, @I$3..@>$3)) '(remote(data, @I$4..@>$4))))) "
+       "(/ (apply '+ all) (length all) 1.0)); L :: "
+       "$3 = '(+ 1 (length (org-lookup-all $2 '(@I$2..@>$2) nil '<))); N"))))
 
 (ert-deftest test-org-table/org-table-make-reference/mode-string-EL ()
   (fset 'f 'org-table-make-reference)
@@ -792,6 +892,76 @@ See also `test-org-table/copy-field'."
 	     "$1 = '(identity remote(table, @1$2)) :: "
 	     ;; Do a calculation: Use Calc (or Lisp ) formula
 	     "$2 = 2 * remote(table, @1$2)")))
+
+(ert-deftest test-org-table/remote-reference-indirect ()
+  "Access to remote reference with indirection of name or ID."
+  (let ((source-tables "
+#+NAME: 2012
+| amount |
+|--------|
+|      1 |
+|      2 |
+|--------|
+|      3 |
+#+TBLFM: @>$1 = vsum(@I..@II)
+
+#+NAME: 2013
+| amount |
+|--------|
+|      4 |
+|      8 |
+|--------|
+|     12 |
+#+TBLFM: @>$1 = vsum(@I..@II)
+"))
+
+    ;; Read several remote references from same column
+    (org-test-table-target-expect
+     (concat source-tables "
+#+NAME: summary
+|  year | amount  |
+|-------+---------|
+|  2012 | replace |
+|  2013 | replace |
+|-------+---------|
+| total | replace |
+")
+     (concat source-tables "
+#+NAME: summary
+|  year | amount |
+|-------+--------|
+|  2012 |      3 |
+|  2013 |     12 |
+|-------+--------|
+| total |     15 |
+")
+     1
+     ;; Calc formula
+     "#+TBLFM: @<<$2..@>>$2 = remote($<, @>$1) :: @>$2 = vsum(@I..@II)"
+     ;; Lisp formula
+     (concat "#+TBLFM: @<<$2..@>>$2 = '(identity remote($<, @>$1)); N :: "
+	     "@>$2 = '(+ @I..@II); N"))
+
+    ;; Read several remote references from same row
+    (org-test-table-target-expect
+     (concat source-tables "
+#+NAME: summary
+| year   |    2012 |    2013 | total   |
+|--------+---------+---------+---------|
+| amount | replace | replace | replace |
+")
+     (concat source-tables "
+#+NAME: summary
+| year   | 2012 | 2013 | total |
+|--------+------+------+-------|
+| amount |    3 |   12 |    15 |
+")
+     1
+     ;; Calc formula
+     "#+TBLFM: @2$<<..@2$>> = remote(@<, @>$1) :: @2$> = vsum($<<..$>>)"
+     ;; Lisp formula
+     (concat "#+TBLFM: @2$<<..@2$>> = '(identity remote(@<, @>$1)); N :: "
+	     "@2$> = '(+ $<<..$>>); N"))))
 
 (ert-deftest test-org-table/org-at-TBLFM-p ()
   (org-test-with-temp-text-in-file

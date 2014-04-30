@@ -27,6 +27,64 @@
 
 ;;; Comments
 
+(ert-deftest test-org/toggle-comment ()
+  "Test `org-toggle-comment' specifications."
+  ;; Simple headline.
+  (should
+   (equal "* Test"
+	  (org-test-with-temp-text "* COMMENT Test"
+	    (org-toggle-comment)
+	    (buffer-string))))
+  (should
+   (equal "* COMMENT Test"
+	  (org-test-with-temp-text "* Test"
+	    (org-toggle-comment)
+	    (buffer-string))))
+  ;; Headline with a regular keyword.
+  (should
+   (equal "* TODO Test"
+	  (org-test-with-temp-text "* TODO COMMENT Test"
+	    (org-toggle-comment)
+	    (buffer-string))))
+  (should
+   (equal "* TODO COMMENT Test"
+	  (org-test-with-temp-text "* TODO Test"
+	    (org-toggle-comment)
+	    (buffer-string))))
+  ;; Empty headline.
+  (should
+   (equal "* "
+	  (org-test-with-temp-text "* COMMENT"
+	    (org-toggle-comment)
+	    (buffer-string))))
+  (should
+   (equal "* COMMENT"
+	  (org-test-with-temp-text "* "
+	    (org-toggle-comment)
+	    (buffer-string))))
+  ;; Headline with a single keyword.
+  (should
+   (equal "* TODO "
+	  (org-test-with-temp-text "* TODO COMMENT"
+	    (org-toggle-comment)
+	    (buffer-string))))
+  (should
+   (equal "* TODO COMMENT"
+	  (org-test-with-temp-text "* TODO"
+	    (org-toggle-comment)
+	    (buffer-string))))
+  ;; Headline with a keyword, a priority cookie and contents.
+  (should
+   (equal "* TODO [#A] Headline"
+	  (org-test-with-temp-text "* TODO [#A] COMMENT Headline"
+	    (org-toggle-comment)
+	    (buffer-string))))
+  (should
+   (equal "* TODO [#A] COMMENT Headline"
+	  (org-test-with-temp-text "* TODO [#A] Headline"
+	    (org-toggle-comment)
+	    (buffer-string)))))
+
 (ert-deftest test-org/comment-dwim ()
   "Test `comment-dwim' behaviour in an Org buffer."
   ;; No region selected, no comment on current line and line not
@@ -430,15 +488,12 @@
    (org-test-with-temp-text "* H1\n Body"
      (org-insert-todo-heading-respect-content)
      (nth 2 (org-heading-components))))
-  ;; Add headline after body of current subtree.
+  ;; Add headline at the end of the first subtree
   (should
-   (org-test-with-temp-text "* H1\nBody"
+   (org-test-with-temp-text "* H1\nH1Body\n** H2\nH2Body"
+     (search-forward "H1Body")
      (org-insert-todo-heading-respect-content)
-     (eobp)))
-  (should
-   (org-test-with-temp-text "* H1\n** H2\nBody"
-     (org-insert-todo-heading-respect-content)
-     (eobp)))
+     (and (eobp) (org-at-heading-p))))
   ;; In a list, do not create a new item.
   (should
    (org-test-with-temp-text "* H\n- an item\n- another one"
@@ -448,7 +503,160 @@
 
 
 
+;;; Fixed-Width Areas
+
+(ert-deftest test-org/toggle-fixed-with ()
+  "Test `org-toggle-fixed-width' specifications."
+  ;; No region: Toggle on fixed-width marker in paragraphs.
+  (should
+   (equal ": A"
+	  (org-test-with-temp-text "A"
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  ;; No region: Toggle off fixed-width markers in fixed-width areas.
+  (should
+   (equal "A"
+	  (org-test-with-temp-text ": A"
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  ;; No region: Toggle on marker in blank lines after elements or just
+  ;; after a headline.
+  (should
+   (equal "* H\n: "
+	  (org-test-with-temp-text "* H\n"
+	    (forward-line)
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  (should
+   (equal "#+BEGIN_EXAMPLE\nContents\n#+END_EXAMPLE\n: "
+	  (org-test-with-temp-text "#+BEGIN_EXAMPLE\nContents\n#+END_EXAMPLE\n"
+	    (goto-char (point-max))
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  ;; No region: Toggle on marker in front of one line elements (e.g.,
+  ;; headlines, clocks)
+  (should
+   (equal ": * Headline"
+	  (org-test-with-temp-text "* Headline"
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  (should
+   (equal ": #+KEYWORD: value"
+	  (org-test-with-temp-text "#+KEYWORD: value"
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  ;; No region: error in other situations.
+  (should-error
+   (org-test-with-temp-text "#+BEGIN_EXAMPLE\n: A\n#+END_EXAMPLE"
+     (forward-line)
+     (org-toggle-fixed-width)
+     (buffer-string)))
+  ;; No region: Indentation is preserved.
+  (should
+   (equal "- A\n  : B"
+	  (org-test-with-temp-text "- A\n  B"
+	    (forward-line)
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  ;; Region: If it contains only fixed-width elements and blank lines,
+  ;; toggle off fixed-width markup.
+  (should
+   (equal "A\n\nB"
+	  (org-test-with-temp-text ": A\n\n: B"
+	    (transient-mark-mode 1)
+	    (push-mark (point) t t)
+	    (goto-char (point-max))
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  ;; Region: If it contains anything else, toggle on fixed-width but
+  ;; not on fixed-width areas.
+  (should
+   (equal ": A\n: \n: B\n: \n: C"
+	  (org-test-with-temp-text "A\n\n: B\n\nC"
+	    (transient-mark-mode 1)
+	    (push-mark (point) t t)
+	    (goto-char (point-max))
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  ;; Region: Ignore blank lines at its end, unless it contains only
+  ;; such lines.
+  (should
+   (equal ": A\n\n"
+	  (org-test-with-temp-text "A\n\n"
+	    (transient-mark-mode 1)
+	    (push-mark (point) t t)
+	    (goto-char (point-max))
+	    (org-toggle-fixed-width)
+	    (buffer-string))))
+  (should
+   (equal ": \n: \n"
+	  (org-test-with-temp-text "\n\n"
+	    (transient-mark-mode 1)
+	    (push-mark (point) t t)
+	    (goto-char (point-max))
+	    (org-toggle-fixed-width)
+	    (buffer-string)))))
+
+
+
+;;; Headline
+
+(ert-deftest test-org/in-commented-heading-p ()
+  "Test `org-in-commented-heading-p' specifications."
+  ;; Commented headline.
+  (should
+   (org-test-with-temp-text "* COMMENT Headline\nBody"
+     (goto-char (point-max))
+     (org-in-commented-heading-p)))
+  ;; Commented ancestor.
+  (should
+   (org-test-with-temp-text "* COMMENT Headline\n** Level 2\nBody"
+     (goto-char (point-max))
+     (org-in-commented-heading-p)))
+  ;; Comment keyword is case-sensitive.
+  (should-not
+   (org-test-with-temp-text "* Comment Headline\nBody"
+     (goto-char (point-max))
+     (org-in-commented-heading-p)))
+  ;; Keyword is standalone.
+  (should-not
+   (org-test-with-temp-text "* COMMENTHeadline\nBody"
+     (goto-char (point-max))
+     (org-in-commented-heading-p)))
+  ;; Optional argument.
+  (should-not
+   (org-test-with-temp-text "* COMMENT Headline\n** Level 2\nBody"
+     (goto-char (point-max))
+     (org-in-commented-heading-p t))))
+
+
+
 ;;; Links
+
+;;;; Coderefs
+
+(ert-deftest test-org/coderef ()
+  "Test coderef links specifications."
+  (should
+   (org-test-with-temp-text "
+#+BEGIN_SRC emacs-lisp
+\(+ 1 1)                  (ref:sc)
+#+END_SRC
+\[[(sc)]]"
+     (goto-char (point-max))
+     (org-open-at-point)
+     (looking-at "(ref:sc)"))))
+
+;;;; Custom ID
+
+(ert-deftest test-org/custom-id ()
+  "Test custom ID links specifications."
+  (should
+   (org-test-with-temp-text
+       "* H1\n:PROPERTIES:\n:CUSTOM_ID: custom\n:END:\n* H2\n[[#custom]]"
+     (goto-char (point-max))
+     (org-open-at-point)
+     (org-looking-at-p "\\* H1"))))
 
 ;;;; Fuzzy Links
 
@@ -457,30 +665,36 @@
 
 (ert-deftest test-org/fuzzy-links ()
   "Test fuzzy links specifications."
-  ;; 1. Fuzzy link goes in priority to a matching target.
+  ;; Fuzzy link goes in priority to a matching target.
   (should
    (org-test-with-temp-text "#+NAME: Test\n|a|b|\n<<Test>>\n* Test\n[[Test]]"
      (goto-line 5)
      (org-open-at-point)
      (looking-at "<<Test>>")))
-  ;; 2. Then fuzzy link points to an element with a given name.
+  ;; Then fuzzy link points to an element with a given name.
   (should
    (org-test-with-temp-text "Test\n#+NAME: Test\n|a|b|\n* Test\n[[Test]]"
      (goto-line 5)
      (org-open-at-point)
      (looking-at "#\\+NAME: Test")))
-  ;; 3. A target still lead to a matching headline otherwise.
+  ;; A target still lead to a matching headline otherwise.
   (should
    (org-test-with-temp-text "* Head1\n* Head2\n*Head3\n[[Head2]]"
      (goto-line 4)
      (org-open-at-point)
      (looking-at "\\* Head2")))
-  ;; 4. With a leading star in link, enforce heading match.
+  ;; With a leading star in link, enforce heading match.
   (should
    (org-test-with-temp-text "* Test\n<<Test>>\n[[*Test]]"
      (goto-line 3)
      (org-open-at-point)
-     (looking-at "\\* Test"))))
+     (looking-at "\\* Test")))
+  ;; Correctly un-hexify fuzzy links.
+  (should
+   (org-test-with-temp-text "* With space\n[[*With%20space][With space]]"
+     (goto-char (point-max))
+     (org-open-at-point)
+     (bobp))))
 
 
 ;;;; Link Escaping
@@ -559,12 +773,15 @@ http://article.gmane.org/gmane.emacs.orgmode/21459/"
      (org-link-escape "http://some.host.com/form?&id=blah%2Bblah25")))))
 
 (ert-deftest test-org/org-link-escape-chars-browser ()
-  "Escape a URL to pass to `browse-url'."
+  "Test of the constant `org-link-escape-chars-browser'.
+See there why this test is a candidate to be removed once Org
+drops support for Emacs 24.1 and 24.2."
   (should
    (string=
     (concat "http://lists.gnu.org/archive/cgi-bin/namazu.cgi?query="
 	    "%22Release%208.2%22&idxname=emacs-orgmode")
-    (org-link-escape-browser
+    (org-link-escape-browser ; Do not replace with `url-encode-url',
+			     ; see docstring above.
      (concat "http://lists.gnu.org/archive/cgi-bin/namazu.cgi?query="
 	     "\"Release 8.2\"&idxname=emacs-orgmode")))))
 
@@ -1294,23 +1511,19 @@ Text.
 
 
 
-;;; Targets and Radio Targets
+;;; Radio Targets
 
-(ert-deftest test-org/all-targets ()
-  "Test `org-all-targets' specifications."
-  ;; Without an argument.
-  (should
-   (equal '("radio-target" "target")
-	  (org-test-with-temp-text "<<target>> <<<radio-target>>>\n: <<verb>>"
-	    (org-all-targets))))
-  (should
-   (equal '("radio-target")
-	  (org-test-with-temp-text "<<<radio-target>>>!" (org-all-targets))))
-  ;; With argument.
-  (should
-   (equal '("radio-target")
-	  (org-test-with-temp-text "<<target>> <<<radio-target>>>"
-	    (org-all-targets t)))))
+(ert-deftest test-org/update-radio-target-regexp ()
+  "Test `org-update-radio-target-regexp' specifications."
+  (org-test-with-temp-text "radio\n\nParagraph\n\nradio"
+    (save-excursion (goto-char (point-max)) (org-element-context))
+    (insert "<<<")
+    (search-forward "o")
+    (insert ">>>")
+    (org-update-radio-target-regexp)
+    (goto-char (point-max))
+    (org-element-type (org-element-context))))
+
 
 
 ;;; Visibility
@@ -1353,7 +1566,21 @@ Text.
    (org-test-with-temp-text ":D:\nparagraph"
      (forward-line 1)
      (org-flag-drawer t)
-     (get-char-property (line-end-position) 'invisible))))
+     (get-char-property (line-end-position) 'invisible)))
+  ;; Do not hide drawers when called from final blank lines.
+  (should-not
+   (org-test-with-temp-text ":DRAWER:\nA\n:END:\n\n"
+     (goto-char (point-max))
+     (org-flag-drawer t)
+     (goto-char (point-min))
+     (get-char-property (line-end-position) 'invisible)))
+  ;; Don't leave point in an invisible part of the buffer when hiding
+  ;; a drawer away.
+  (should-not
+   (org-test-with-temp-text ":DRAWER:\ncontents\n:END:"
+     (goto-char (point-max))
+     (org-flag-drawer t)
+     (get-char-property (point) 'invisible))))
 
 
 (provide 'test-org)

@@ -174,7 +174,7 @@ This is the compiled version of the format.")
 	 (face (list color font 'org-column ref-face))
 	 (face1 (list color font 'org-agenda-column-dateline ref-face))
 	 (cphr (get-text-property (point-at-bol) 'org-complex-heading-regexp))
-	 pom property ass width f string ov column val modval s2 title calc)
+	 pom property ass width f fc string fm ov column val modval s2 title calc)
     ;; Check if the entry is in another buffer.
     (unless props
       (if (eq major-mode 'org-agenda-mode)
@@ -204,6 +204,8 @@ This is the compiled version of the format.")
 		      (nth 2 column)
 		      (length property))
 	    f (format "%%-%d.%ds | " width width)
+	    fm (nth 4 column)
+	    fc (nth 5 column)
 	    calc (nth 7 column)
 	    val (or (cdr ass) "")
 	    modval (cond ((and org-columns-modify-value-for-display-function
@@ -215,13 +217,14 @@ This is the compiled version of the format.")
 			  (org-columns-cleanup-item
 			   val org-columns-current-fmt-compiled
 			   (or org-complex-heading-regexp cphr)))
+			 (fc (org-columns-number-to-string
+			      (org-columns-string-to-number val fm) fm fc))
 			 ((and calc (functionp calc)
 			       (not (string= val ""))
 			       (not (get-text-property 0 'org-computed val)))
 			  (org-columns-number-to-string
 			   (funcall calc (org-columns-string-to-number
-					  val (nth 4 column)))
-			   (nth 4 column)))))
+					  val fm)) fm))))
       (setq s2 (org-columns-add-ellipses (or modval val) width))
       (setq string (format f s2))
       ;; Create the overlay
@@ -897,7 +900,7 @@ display, or in the #+COLUMNS line of the current buffer."
 	      (org-entry-put nil "COLUMNS" fmt)
 	    (goto-char (point-min))
 	    ;; Overwrite all #+COLUMNS lines....
-	    (while (re-search-forward "^#\\+COLUMNS:.*" nil t)
+	    (while (re-search-forward "^[ \t]*#\\+COLUMNS:.*" nil t)
 	      (setq cnt (1+ cnt))
 	      (replace-match (concat "#+COLUMNS: " fmt) t t))
 	    (unless (> cnt 0)
@@ -1198,8 +1201,6 @@ containing the title row and all other rows.  Each row is a list
 of fields."
   (save-excursion
     (let* ((title (mapcar 'cadr org-columns-current-fmt-compiled))
-	   (re-comment (format org-heading-keyword-regexp-format
-			       org-comment-string))
 	   (re-archive (concat ".*:" org-archive-tag ":"))
 	   (n (length title)) row tbl)
       (goto-char (point-min))
@@ -1211,9 +1212,9 @@ of fields."
 				 (/ (1+ (length (match-string 1))) 2)
 			       (length (match-string 1)))))
 		     (get-char-property (match-beginning 0) 'org-columns-key))
-	    (when (save-excursion
-		    (goto-char (point-at-bol))
-		    (or (looking-at re-comment)
+	    (when (or (org-in-commented-heading-p t)
+		      (save-excursion
+			(beginning-of-line)
 			(looking-at re-archive)))
 	      (org-end-of-subtree t)
 	      (throw 'next t))

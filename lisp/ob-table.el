@@ -24,7 +24,7 @@
 ;;; Commentary:
 
 ;; Should allow calling functions from org-mode tables using the
-;; function `sbe' as so...
+;; function `org-sbe' as so...
 
 ;; #+begin_src emacs-lisp :results silent
 ;;   (defun fibbd (n) (if (< n 2) 1 (+ (fibbd (- n 1)) (fibbd (- n 2)))))
@@ -47,7 +47,7 @@
 ;; |        7 |        |
 ;; |        8 |        |
 ;; |        9 |        |
-;; #+TBLFM: $2='(sbe 'fibbd (n $1))
+;; #+TBLFM: $2='(org-sbe 'fibbd (n $1))
 
 ;;; Code:
 (require 'ob-core)
@@ -60,31 +60,35 @@ character and replace it with ellipses."
       (concat (substring string 0 (match-beginning 0))
 	      (if (match-string 1 string) "...")) string))
 
-(defmacro sbe (source-block &rest variables) ;FIXME: Namespace prefix!
+(defmacro org-sbe (source-block &rest variables)
   "Return the results of calling SOURCE-BLOCK with VARIABLES.
-Each element of VARIABLES should be a two
-element list, whose first element is the name of the variable and
-second element is a string of its value.  The following call to
-`sbe' would be equivalent to the following source code block.
 
- (sbe 'source-block (n $2) (m 3))
+Each element of VARIABLES should be a list of two elements: the
+first element is the name of the variable and second element is a
+string of its value.
 
-#+begin_src emacs-lisp :var results=source-block(n=val_at_col_2, m=3) :results silent
-results
-#+end_src
+So this `org-sbe' construct
 
-NOTE: by default string variable names are interpreted as
+ (org-sbe 'source-block (n $2) (m 3))
+
+is the equivalent of the following source code block:
+
+ #+begin_src emacs-lisp :var results=source-block(n=val_at_col_2, m=3) :results silent
+ results
+ #+end_src
+
+NOTE: By default, string variable names are interpreted as
 references to source-code blocks, to force interpretation of a
 cell's value as a string, prefix the identifier a \"$\" (e.g.,
 \"$$2\" instead of \"$2\" or \"$@2$2\" instead of \"@2$2\").
 
-NOTE: it is also possible to pass header arguments to the code
+NOTE: It is also possible to pass header arguments to the code
 block.  In this case a table cell should hold the string value of
 the header argument which can then be passed before all variables
 as shown in the example below.
 
 | 1 | 2 | :file nothing.png | nothing.png |
-#+TBLFM: @1$4='(sbe test-sbe $3 (x $1) (y $2))"
+#+TBLFM: @1$4='(org-sbe test-sbe $3 (x $1) (y $2))"
   (declare (debug (form form)))
   (let* ((header-args (if (stringp (car variables)) (car variables) ""))
 	 (variables (if (stringp (car variables)) (cdr variables) variables)))

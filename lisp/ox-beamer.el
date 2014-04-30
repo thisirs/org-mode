@@ -36,10 +36,7 @@
 (unless (assoc "beamer" org-latex-classes)
   (add-to-list 'org-latex-classes
 	       '("beamer"
-		 "\\documentclass[presentation]{beamer}
-\[DEFAULT-PACKAGES]
-\[PACKAGES]
-\[EXTRA]"
+		 "\\documentclass[presentation]{beamer}"
 		 ("\\section{%s}" . "\\section*{%s}")
 		 ("\\subsection{%s}" . "\\subsection*{%s}")
 		 ("\\subsubsection{%s}" . "\\subsubsection*{%s}"))))
@@ -234,15 +231,14 @@ Return overlay specification, as a string, or nil."
 	      (if a (org-beamer-export-to-pdf t s v b)
 		(org-open-file (org-beamer-export-to-pdf nil s v b)))))))
   :options-alist
-  '((:beamer-theme "BEAMER_THEME" nil org-beamer-theme)
+  '((:latex-class "LATEX_CLASS" nil "beamer" t)
+    (:beamer-theme "BEAMER_THEME" nil org-beamer-theme)
     (:beamer-color-theme "BEAMER_COLOR_THEME" nil nil t)
     (:beamer-font-theme "BEAMER_FONT_THEME" nil nil t)
     (:beamer-inner-theme "BEAMER_INNER_THEME" nil nil t)
     (:beamer-outer-theme "BEAMER_OUTER_THEME" nil nil t)
     (:beamer-header-extra "BEAMER_HEADER" nil nil newline)
-    ;; Modify existing properties.
-    (:headline-levels nil "H" org-beamer-frame-level)
-    (:latex-class "LATEX_CLASS" nil "beamer" t))
+    (:headline-levels nil "H" org-beamer-frame-level))
   :translate-alist '((bold . org-beamer-bold)
 		     (export-block . org-beamer-export-block)
 		     (export-snippet . org-beamer-export-snippet)
@@ -647,11 +643,11 @@ contextual information."
 		  (and (eq (org-element-type first-element) 'paragraph)
 		       (org-beamer--element-has-overlay-p first-element))))
 	(output (org-export-with-backend 'latex item contents info)))
-    (if (not action) output
+    (if (or (not action) (not (string-match "\\\\item" output))) output
       ;; If the item starts with a paragraph and that paragraph starts
       ;; with an export snippet specifying an overlay, insert it after
       ;; \item command.
-      (replace-regexp-in-string "\\\\item" (concat "\\\\item" action) output))))
+      (replace-match (concat "\\\\item" action) nil nil output))))
 
 
 ;;;; Keyword
@@ -693,8 +689,9 @@ used as a communication channel."
 	(when destination
 	  (format "\\hyperlink%s{%s}{%s}"
 		  (or (org-beamer--element-has-overlay-p link) "")
-		  (org-export-solidify-link-text path)
-		  (org-export-data (org-element-contents destination) info)))))
+		  (org-export-solidify-link-text
+		   (org-element-property :value destination))
+		  contents))))
      ((and (member type '("custom-id" "fuzzy" "id"))
 	   (let ((destination (if (string= type "fuzzy")
 				  (org-export-resolve-fuzzy-link link info)
@@ -1169,7 +1166,9 @@ Return output file name."
   ;; working directory and then moved to publishing directory.
   (org-publish-attachment
    plist
-   (org-latex-compile (org-publish-org-to 'beamer filename ".tex" plist))
+   (org-latex-compile
+    (org-publish-org-to
+     'beamer filename ".tex" plist (file-name-directory filename)))
    pub-dir))
 
 

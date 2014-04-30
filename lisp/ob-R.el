@@ -96,25 +96,16 @@ this variable.")
 (defun org-babel-expand-body:R (body params &optional graphics-file)
   "Expand BODY according to PARAMS, return the expanded body."
   (let ((graphics-file
-	 (or graphics-file (org-babel-R-graphical-output-file params))))
-    (mapconcat
-     #'identity
-     (let ((inside
-            (append
-             (when (cdr (assoc :prologue params))
-               (list (cdr (assoc :prologue params))))
-             (org-babel-variable-assignments:R params)
-             (list body)
-             (when (cdr (assoc :epilogue params))
-               (list (cdr (assoc :epilogue params)))))))
-       (if graphics-file
-           (append
-            (list (org-babel-R-construct-graphics-device-call
-                   graphics-file params))
-            inside
-            (list "dev.off()"))
-         inside))
-     "\n")))
+	 (or graphics-file (org-babel-graphical-output-file params))))
+    (mapconcat #'identity
+	       (append
+		(when (cdr (assoc :prologue params))
+		  (list (cdr (assoc :prologue params))))
+		(org-babel-variable-assignments:R params)
+		(list body)
+		(when (cdr (assoc :epilogue params))
+		  (list (cdr (assoc :epilogue params)))))
+	       "\n")))
 
 (defun org-babel-execute:R (body params)
   "Execute a block of R code.
@@ -126,8 +117,19 @@ This function is called by `org-babel-execute-src-block'."
 		     (cdr (assoc :session params)) params))
 	   (colnames-p (cdr (assoc :colnames params)))
 	   (rownames-p (cdr (assoc :rownames params)))
-	   (graphics-file (org-babel-R-graphical-output-file params))
-	   (full-body (org-babel-expand-body:R body params graphics-file))
+	   (graphics-file (org-babel-graphical-output-file params))
+	   (full-body
+	    (let ((inside
+		   (list (org-babel-expand-body:R body params graphics-file))))
+	      (mapconcat #'identity
+			 (if graphics-file
+			     (append
+			      (list (org-babel-R-construct-graphics-device-call
+				     graphics-file params))
+			      inside
+			      (list "},error=function(e){plot(x=-1:1, y=-1:1, type='n', xlab='', ylab='', axes=FALSE); text(x=0, y=0, labels=e$message, col='red'); paste('ERROR', e$message, sep=' : ')}); dev.off()"))
+			   inside)
+			 "\n")))
 	   (result
 	    (org-babel-R-evaluate
 	     session full-body result-type result-params
@@ -249,11 +251,6 @@ current code buffer."
 	(process-name (get-buffer-process session)))
   (ess-make-buffer-current))
 
-(defun org-babel-R-graphical-output-file (params)
-  "Name of file to which R should send graphical output."
-  (and (member "graphics" (cdr (assq :result-params params)))
-       (cdr (assq :file params))))
-
 (defvar org-babel-R-graphics-devices
   '((:bmp "bmp" "filename")
     (:jpg "jpeg" "filename")
@@ -295,7 +292,7 @@ Each member of this list is a list with three members:
 			      (substring (symbol-name (car pair)) 1)
 			      (cdr pair)) ""))
 		params ""))
-    (format "%s(%s=\"%s\"%s%s%s)"
+    (format "%s(%s=\"%s\"%s%s%s); tryCatch({"
 	    device filearg out-file args
 	    (if extra-args "," "") (or extra-args ""))))
 

@@ -36,6 +36,7 @@
 (declare-function notifications-notify "notifications" (&rest params))
 (declare-function org-pop-to-buffer-same-window "org-compat" (&optional buffer-or-name norecord label))
 (declare-function org-refresh-properties "org" (dprop tprop))
+(declare-function org-table-goto-line "org-table" (n))
 (defvar org-time-stamp-formats)
 (defvar org-ts-what)
 (defvar org-frame-title-format-backup frame-title-format)
@@ -1711,9 +1712,21 @@ With prefix arg SELECT, offer recently clocked tasks for selection."
 
 (defun org-clock-sum-today (&optional headline-filter)
   "Sum the times for each subtree for today."
-  (interactive)
   (let ((range (org-clock-special-range 'today)))
-    (org-clock-sum (car range) (cadr range) nil :org-clock-minutes-today)))
+    (org-clock-sum (car range) (cadr range)
+		   headline-filter :org-clock-minutes-today)))
+
+(defun org-clock-sum-custom (&optional headline-filter)
+  "Sum the times for each subtree for today."
+  (let ((range
+	 (org-clock-special-range
+	  (intern (completing-read
+		   "Range: "
+		   '("today" "yesterday" "thisweek" "lastweek"
+		     "thismonth" "lastmonth" "thisyear" "lastyear")
+		   nil t)))))
+    (org-clock-sum (car range) (cadr range)
+		   headline-filter :org-clock-minutes-custom)))
 
 ;;;###autoload
 (defun org-clock-sum (&optional tstart tend headline-filter propname)
@@ -1724,7 +1737,6 @@ HEADLINE-FILTER is a zero-arg function that, if specified, is called for
 each headline in the time range with point at the headline.  Headlines for
 which HEADLINE-FILTER returns nil are excluded from the clock summation.
 PROPNAME lets you set a custom text property instead of :org-clock-minutes."
-  (interactive)
   (org-with-silent-modifications
    (let* ((re (concat "^\\(\\*+\\)[ \t]\\|^[ \t]*"
 		      org-clock-string
@@ -1782,6 +1794,8 @@ PROPNAME lets you set a custom text property instead of :org-clock-minutes."
 		       (save-excursion
 			 (save-match-data (funcall headline-filter))))))
 	     (setq level (- (match-end 1) (match-beginning 1)))
+	     (when (>= level lmax)
+	       (setq ltimes (vconcat ltimes (make-vector lmax 0)) lmax (* 2 lmax)))
 	     (when (or (> t1 0) (> (aref ltimes level) 0))
 	       (when (or headline-included headline-forced)
 		 (if headline-included
@@ -1814,58 +1828,71 @@ PROPNAME lets you set a custom text property instead of :org-clock-minutes."
       org-clock-file-total-minutes)))
 
 ;;;###autoload
-(defun org-clock-display (&optional total-only)
+(defun org-clock-display (arg)
   "Show subtree times in the entire buffer.
-If TOTAL-ONLY is non-nil, only show the total time for the entire file
-in the echo area.
+
+With one universal prefix argument, show the total time for
+today.  With two universal prefix arguments, show the total time
+for a custom range, entered at the prompt.  With three universal
+prefix arguments, show the total time in the echo area.
 
 Use \\[org-clock-remove-overlays] to remove the subtree times."
-  (interactive)
+  (interactive "P")
   (org-clock-remove-overlays)
-  (let (time h m p)
-    (org-clock-sum)
-    (unless total-only
+  (let* ((todayp (equal arg '(4)))
+	 (customp (equal arg '(16)))
+	 (prop (cond (todayp :org-clock-minutes-today)
+		     (customp :org-clock-minutes-custom)
+		     (t :org-clock-minutes)))
+	 time h m p)
+    (cond (todayp (org-clock-sum-today))
+	  (customp (org-clock-sum-custom))
+	  (t (org-clock-sum)))
+    (unless (eq arg '(64))
       (save-excursion
 	(goto-char (point-min))
 	(while (or (and (equal (setq p (point)) (point-min))
-			(get-text-property p :org-clock-minutes))
+			(get-text-property p prop))
 		   (setq p (next-single-property-change
-			    (point) :org-clock-minutes)))
+			    (point) prop)))
 	  (goto-char p)
-	  (when (setq time (get-text-property p :org-clock-minutes))
-	    (org-clock-put-overlay time (funcall outline-level))))
+	  (when (setq time (get-text-property p prop))
+	    (org-clock-put-overlay time)))
 	(setq h (/ org-clock-file-total-minutes 60)
 	      m (- org-clock-file-total-minutes (* 60 h)))
 	;; Arrange to remove the overlays upon next change.
 	(when org-remove-highlights-with-change
 	  (org-add-hook 'before-change-functions 'org-clock-remove-overlays
 			nil 'local))))
-      (message (concat "Total file time: "
-		       (org-minutes-to-clocksum-string org-clock-file-total-minutes)
-		       " (%d hours and %d minutes)") h m)))
+    (message (concat (format "Total file time%s: "
+			     (cond (todayp " for today")
+				   (customp " (custom)")
+				   (t "")))
+		     (org-minutes-to-clocksum-string org-clock-file-total-minutes)
+		     " (%d hours and %d minutes)") h m)))
 
 (defvar org-clock-overlays nil)
 (make-variable-buffer-local 'org-clock-overlays)
 
-(defun org-clock-put-overlay (time &optional level)
+(defun org-clock-put-overlay (time)
   "Put an overlays on the current line, displaying TIME.
-If LEVEL is given, prefix time with a corresponding number of stars.
 This creates a new overlay and stores it in `org-clock-overlays', so that it
 will be easy to remove."
-  (let* ((c 60) (h (floor (/ time 60))) (m (- time (* 60 h)))
-	 (l (if level (org-get-valid-level level 0) 0))
-	 (off 0)
-	 ov tx)
-    (org-move-to-column c)
-    (unless (eolp) (skip-chars-backward "^ \t"))
-    (skip-chars-backward " \t")
-    (setq ov (make-overlay (point-at-bol) (point-at-eol))
-    	  tx (concat (buffer-substring (point-at-bol) (point))
-		     (make-string (+ off (max 0 (- c (current-column)))) ?.)
-		     (org-add-props (concat (make-string l ?*) " "
-					    (org-minutes-to-clocksum-string time)
-					    (make-string (- 16 l) ?\ ))
-			 (list 'face 'org-clock-overlay))
+  (let (ov tx)
+    (beginning-of-line)
+    (when (looking-at org-complex-heading-regexp)
+      (goto-char (match-beginning 4)))
+    (setq ov (make-overlay (point) (point-at-eol))
+    	  tx (concat (buffer-substring-no-properties (point) (match-end 4))
+		     (org-add-props
+			 (make-string
+			  (max 0 (- (- 60 (current-column))
+				    (- (match-end 4) (match-beginning 4))
+				    (length (org-get-at-bol 'line-prefix)))) ?·)
+			 '(face shadow))
+		     (org-add-props
+			 (format " %9s " (org-minutes-to-clocksum-string time))
+			 '(face org-clock-overlay))
 		     ""))
     (if (not (featurep 'xemacs))
 	(overlay-put ov 'display tx)
@@ -2337,6 +2364,7 @@ from the dynamic block definition."
 			org-clock-clocktable-language-setup))
 	 (multifile (plist-get params :multifile))
 	 (block (plist-get params :block))
+	 (sort (plist-get params :sort))
 	 (ts (plist-get params :tstart))
 	 (te (plist-get params :tend))
 	 (header (plist-get  params :header))
@@ -2543,6 +2571,11 @@ from the dynamic block definition."
     (when org-hide-emphasis-markers
       ;; we need to align a second time
       (org-table-align))
+    (when sort
+      (save-excursion
+	(org-table-goto-line 3)
+	(org-table-goto-column (car sort))
+	(org-table-sort-lines nil (cdr sort))))
     (when recalc
       (if (eq formula '%)
 	  (save-excursion
@@ -2707,9 +2740,13 @@ TIME:      The sum of all time spend in this tree, in minutes.  This time
 			   (format "file:%s::%s"
 				   (buffer-file-name)
 				   (save-match-data
-				     (org-make-org-heading-search-string
-				      (match-string 2))))
-			   (match-string 2)))
+				     (match-string 2)))
+			   (org-make-org-heading-search-string
+			    (replace-regexp-in-string
+			     org-bracket-link-regexp
+			     (lambda (m) (or (match-string 3 m)
+					     (match-string 1 m)))
+			     (match-string 2)))))
 		    tsp (when timestamp
 			  (setq props (org-entry-properties (point)))
 			  (or (cdr (assoc "SCHEDULED" props))

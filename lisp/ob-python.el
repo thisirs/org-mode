@@ -82,6 +82,8 @@ This function is called by `org-babel-execute-src-block'."
 	 (return-val (when (and (eq result-type 'value) (not session))
 		       (cdr (assoc :return params))))
 	 (preamble (cdr (assoc :preamble params)))
+	 (org-babel-python-command
+	  (or (cdr (assoc :python params)) org-babel-python-command))
          (full-body
 	  (org-babel-expand-body:generic
 	   (concat body (if return-val (format "\nreturn %s" return-val) ""))
@@ -137,7 +139,7 @@ specifying a variable of the same value."
 	org-babel-python-hline-to
       (format
        (if (and (stringp var) (string-match "[\n\r]" var)) "\"\"%S\"\"" "%S")
-       var))))
+       (if (stringp var) (substring-no-properties var) var)))))
 
 (defun org-babel-python-table-or-string (results)
   "Convert RESULTS into an appropriate elisp value.

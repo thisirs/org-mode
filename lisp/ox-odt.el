@@ -66,7 +66,6 @@
     (planning . org-odt-planning)
     (property-drawer . org-odt-property-drawer)
     (quote-block . org-odt-quote-block)
-    (quote-section . org-odt-quote-section)
     (radio-target . org-odt-radio-target)
     (section . org-odt-section)
     (special-block . org-odt-special-block)
@@ -1503,7 +1502,7 @@ original parsed data.  INFO is a plist holding export options."
 	      (email (and (plist-get info :with-email) email)))
 	 (concat
 	  ;; Title.
-	  (when title
+	  (when (org-string-nw-p title)
 	    (concat
 	     (format "\n<text:p text:style-name=\"%s\">%s</text:p>"
 		     "OrgTitle" (format "\n<text:title>%s</text:title>" title))
@@ -2714,10 +2713,8 @@ INFO is a plist holding contextual information.  See
 	 (path (cond
 		((member type '("http" "https" "ftp" "mailto"))
 		 (concat type ":" raw-path))
-		((string= type "file")
-		 (if (file-name-absolute-p raw-path)
-		     (concat "file://" (expand-file-name raw-path))
-		   (concat "file://" raw-path)))
+		((and (string= type "file") (file-name-absolute-p raw-path))
+		 (concat "file:" raw-path))
 		(t raw-path)))
 	 ;; Convert & to &amp; for correct XML representation
 	 (path (replace-regexp-in-string "&" "&amp;" path))
@@ -2736,11 +2733,11 @@ INFO is a plist holding contextual information.  See
      ((string= type "radio")
       (let ((destination (org-export-resolve-radio-link link info)))
 	(when destination
-	  (let ((desc (org-export-data (org-element-contents destination) info))
-		(href (org-export-solidify-link-text path)))
-	    (format
-	     "<text:bookmark-ref text:reference-format=\"text\" text:ref-name=\"OrgXref.%s\">%s</text:bookmark-ref>"
-	     href desc)))))
+	  (format
+	   "<text:bookmark-ref text:reference-format=\"text\" text:ref-name=\"OrgXref.%s\">%s</text:bookmark-ref>"
+	   (org-export-solidify-link-text
+	    (org-element-property :value destination))
+	   desc))))
      ;; Links pointing to a headline: Find destination and build
      ;; appropriate referencing command.
      ((member type '("custom-id" "fuzzy" "id"))
@@ -2996,16 +2993,6 @@ holding contextual information."
 CONTENTS holds the contents of the block.  INFO is a plist
 holding contextual information."
   contents)
-
-
-;;;; Quote Section
-
-(defun org-odt-quote-section (quote-section contents info)
-  "Transcode a QUOTE-SECTION element from Org to ODT.
-CONTENTS is nil.  INFO is a plist holding contextual information."
-  (let ((value (org-remove-indentation
-		(org-element-property :value quote-section))))
-    (when value (org-odt-do-format-code value))))
 
 
 ;;;; Section

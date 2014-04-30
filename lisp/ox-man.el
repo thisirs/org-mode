@@ -83,7 +83,6 @@
     (planning . org-man-planning)
     (property-drawer . org-man-property-drawer)
     (quote-block . org-man-quote-block)
-    (quote-section . org-man-quote-section)
     (radio-target . org-man-radio-target)
     (section . org-man-section)
     (special-block . org-man-special-block)
@@ -639,21 +638,15 @@ CONTENTS is nil.  INFO is a plist holding contextual information."
 DESC is the description part of the link, or the empty string.
 INFO is a plist holding contextual information.  See
 `org-export-data'."
-
   (let* ((type (org-element-property :type link))
          (raw-path (org-element-property :path link))
          ;; Ensure DESC really exists, or set it to nil.
          (desc (and (not (string= desc "")) desc))
-
          (path (cond
                 ((member type '("http" "https" "ftp" "mailto"))
                  (concat type ":" raw-path))
-                ((string= type "file")
-                 (when (string-match "\\(.+\\)::.+" raw-path)
-                   (setq raw-path (match-string 1 raw-path)))
-                 (if (file-name-absolute-p raw-path)
-                     (concat "file://" (expand-file-name raw-path))
-                   (concat "file://" raw-path)))
+                ((and (string= type "file") (file-name-absolute-p raw-path))
+                 (concat "file:" raw-path))
                 (t raw-path)))
          protocol)
     (cond
@@ -749,15 +742,6 @@ holding contextual information."
   (org-man--wrap-label
    quote-block
    (format ".RS\n%s\n.RE" contents)))
-
-;;; Quote Section
-
-(defun org-man-quote-section (quote-section contents info)
-  "Transcode a QUOTE-SECTION element from Org to Man.
-CONTENTS is nil.  INFO is a plist holding contextual information."
-  (let ((value (org-remove-indentation
-                (org-element-property :value quote-section))))
-    (when value (format ".RS\\fI%s\\fP\n.RE\n" value))))
 
 
 ;;; Radio Target

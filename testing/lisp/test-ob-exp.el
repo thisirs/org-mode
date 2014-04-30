@@ -32,8 +32,7 @@ Current buffer is a copy of the original buffer."
      (with-temp-buffer
        (org-mode)
        (insert string)
-       (let ((org-current-export-file buf))
-	 (org-babel-exp-process-buffer))
+       (org-babel-exp-process-buffer buf)
        (goto-char (point-min))
        (progn ,@body))))
 
@@ -281,6 +280,143 @@ Here is one at the end of a line. =2=
     (let* ((ascii (org-export-as 'ascii)))
       (should (string-match (regexp-quote (format nil "%S" '(:foo :bar)))
 			    ascii)))))
+
+(ert-deftest ob-export/export-with-results-before-block ()
+  "Test export when results are inserted before source block."
+  (should
+   (equal
+    "#+RESULTS: src1
+: 2
+
+#+NAME: src1
+#+BEGIN_SRC emacs-lisp
+\(+ 1 1)
+#+END_SRC"
+    (org-test-with-temp-text
+	"#+RESULTS: src1
+
+#+NAME: src1
+#+BEGIN_SRC emacs-lisp :exports both
+\(+ 1 1)
+#+END_SRC"
+      (org-export-execute-babel-code)
+      (buffer-string)))))
+
+(ert-deftest ob-export/export-src-block-with-switches ()
+  "Test exporting a source block with switches."
+  (should
+   (string-match
+    "\\`#\\+BEGIN_SRC emacs-lisp -n -r$"
+    (org-test-with-temp-text
+	"#+BEGIN_SRC emacs-lisp -n -r\n\(+ 1 1)\n#+END_SRC"
+      (org-export-execute-babel-code)
+      (buffer-string)))))
+
+(ert-deftest ob-export/export-src-block-with-flags ()
+  "Test exporting a source block with a flag."
+  (should
+   (string-match
+    "\\`#\\+BEGIN_SRC emacs-lisp -some-flag$"
+    (org-test-with-temp-text
+	"#+BEGIN_SRC emacs-lisp :flags -some-flag\n\(+ 1 1)\n#+END_SRC"
+      (org-export-execute-babel-code)
+      (buffer-string)))))
+
+(ert-deftest ob-export/export-and-indentation ()
+  "Test indentation of evaluated source blocks during export."
+  ;; No indentation.
+  (should
+   (string-match
+    "^t"
+    (org-test-with-temp-text "#+BEGIN_SRC emacs-lisp\n t\n#+END_SRC"
+      (let ((indent-tabs-mode t)
+	    (tab-width 1)
+	    (org-src-preserve-indentation nil))
+	(org-export-execute-babel-code)
+	(buffer-string)))))
+  ;; Preserve indentation with "-i" flag.
+  (should
+   (string-match
+    "^ t"
+    (org-test-with-temp-text "#+BEGIN_SRC emacs-lisp -i\n t\n#+END_SRC"
+      (let ((indent-tabs-mode t)
+	    (tab-width 1))
+	(org-export-execute-babel-code)
+	(buffer-string)))))
+  ;; Preserve indentation with a non-nil
+  ;; `org-src-preserve-indentation'.
+  (should
+   (string-match
+    "^ t"
+    (org-test-with-temp-text "#+BEGIN_SRC emacs-lisp\n t\n#+END_SRC"
+      (let ((indent-tabs-mode t)
+	    (tab-width 1)
+	    (org-src-preserve-indentation t))
+	(org-export-execute-babel-code)
+	(buffer-string))))))
+
+(ert-deftest ob-export/export-under-commented-headline ()
+  "Test evaluation of code blocks under COMMENT headings."
+  ;; Do not eval block in a commented headline.
+  (should
+   (string-match
+    ": 2"
+    (org-test-with-temp-text "* Headline
+#+BEGIN_SRC emacs-lisp :exports results
+\(+ 1 1)
+#+END_SRC"
+      (org-export-execute-babel-code)
+      (buffer-string))))
+  (should-not
+   (string-match
+    ": 2"
+    (org-test-with-temp-text "* COMMENT Headline
+#+BEGIN_SRC emacs-lisp :exports results
+\(+ 1 1)
+#+END_SRC"
+      (org-export-execute-babel-code)
+      (buffer-string))))
+  ;; Do not eval inline blocks either.
+  (should
+   (string-match
+    "=2="
+    (org-test-with-temp-text "* Headline
+src_emacs-lisp{(+ 1 1)}"
+      (org-export-execute-babel-code)
+      (buffer-string))))
+  (should-not
+   (string-match
+    "=2="
+    (org-test-with-temp-text "* COMMENT Headline
+src_emacs-lisp{(+ 1 1)}"
+      (org-export-execute-babel-code)
+      (buffer-string))))
+  ;; Also check parent headlines.
+  (should-not
+   (string-match
+    ": 2"
+    (org-test-with-temp-text "
+* COMMENT Headline
+** Children
+#+BEGIN_SRC emacs-lisp :exports results
+\(+ 1 1)
+#+END_SRC"
+      (org-export-execute-babel-code)
+      (buffer-string)))))
+
+(ert-deftest ob-export/reference-in-post-header ()
+  "Test references in :post header during export."
+  (should
+   (org-test-with-temp-text "
+#+NAME: foo
+#+BEGIN_SRC emacs-lisp :exports none :var bar=\"baz\"
+  (concat \"bar\" bar)
+#+END_SRC
+
+#+NAME: nofun
+#+BEGIN_SRC emacs-lisp :exports results :post foo(\"nofun\")
+#+END_SRC"
+     (org-export-execute-babel-code) t)))
 
 
 (provide 'test-ob-exp)

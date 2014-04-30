@@ -224,7 +224,7 @@ Returns non-nil if match-data set"
   (let ((src-at-0-p (save-excursion
 		      (beginning-of-line 1)
 		      (string= "src" (thing-at-point 'word))))
-	(first-line-p (= 1 (line-number-at-pos)))
+	(first-line-p (= (line-beginning-position) (point-min)))
 	(orig (point)))
     (let ((search-for (cond ((and src-at-0-p first-line-p  "src_"))
 			    (first-line-p "[[:punct:] \t]src_")
@@ -285,7 +285,11 @@ Returns a list
       (setf (nth 2 info) (org-babel-process-params (nth 2 info))))
     (when info (append info (list name indent head)))))
 
-(defvar org-current-export-file) ; dynamically bound
+(defvar org-babel-exp-reference-buffer nil
+  "Buffer containing original contents of the exported buffer.
+This is used by Babel to resolve references in source blocks.
+Its value is dynamically bound during export.")
+
 (defmacro org-babel-check-confirm-evaluate (info &rest body)
   "Evaluate BODY with special execution confirmation variables set.
 
@@ -305,7 +309,7 @@ name of the code block."
 				 (when (assoc :noeval ,headers) "no")))
 	    (,eval-no        (or (equal ,eval "no")
 				 (equal ,eval "never")))
-	    (,export         (org-bound-and-true-p org-current-export-file))
+	    (,export         org-babel-exp-reference-buffer)
 	    (,eval-no-export (and ,export (or (equal ,eval "no-export")
 					      (equal ,eval "never-export"))))
 	    (noeval          (or ,eval-no ,eval-no-export))
@@ -581,7 +585,7 @@ can not be resolved.")
 (defun org-babel-named-src-block-regexp-for-name (name)
   "This generates a regexp used to match a src block named NAME."
   (concat org-babel-src-name-regexp (regexp-quote name)
-	  "[ \t(]*[\r\n]\\(?:^#.*[\r\n]\\)*"
+	  "[ \t(]*[\r\n]\\(?:^[[:space:]]*#.*[\r\n]\\)*"
 	  (substring org-babel-src-block-regexp 1)))
 
 (defun org-babel-named-data-regexp-for-name (name)
@@ -1246,14 +1250,14 @@ the current subtree."
         (when (org-called-interactively-p 'interactive) (message hash))
         hash))))
 
-(defun org-babel-current-result-hash ()
+(defun org-babel-current-result-hash (&optional info)
   "Return the current in-buffer hash."
-  (org-babel-where-is-src-block-result)
+  (org-babel-where-is-src-block-result nil info)
   (org-no-properties (match-string 5)))
 
-(defun org-babel-set-current-result-hash (hash)
+(defun org-babel-set-current-result-hash (hash info)
   "Set the current in-buffer hash to HASH."
-  (org-babel-where-is-src-block-result)
+  (org-babel-where-is-src-block-result nil info)
   (save-excursion (goto-char (match-beginning 5))
 		  (mapc #'delete-overlay (overlays-at (point)))
 		  (forward-char org-babel-hash-show)
@@ -1587,7 +1591,7 @@ shown below.
 ;; row and column names
 (defun org-babel-del-hlines (table)
   "Remove all 'hlines from TABLE."
-  (remove 'hline table))
+  (remq 'hline table))
 
 (defun org-babel-get-colnames (table)
   "Return the column names of TABLE.
@@ -2219,7 +2223,7 @@ code ---- the results are extracted in the syntax of the source
 		  (funcall wrap ":RESULTS:" ":END:" 'no-escape))
 		 ((and (not (funcall proper-list-p result))
 		       (not (member "file" result-params)))
-		  (org-babel-examplize-region beg end results-switches)
+		  (org-babel-examplify-region beg end results-switches)
 		  (setq end (point)))))
 	      ;; possibly indent the results to match the #+results line
 	      (when (and (not inlinep) (numberp indent) indent (> indent 0)
@@ -2247,6 +2251,15 @@ code ---- the results are extracted in the syntax of the source
 	  (delete-region
 	   (if keep-keyword (1+ (match-end 0)) (1- (match-beginning 0)))
 	   (progn (forward-line 1) (org-babel-result-end))))))))
+
+(defun org-babel-remove-result-one-or-many (x)
+  "Remove the result of the current source block.
+If called with a prefix argument, remove all result blocks
+in the buffer."
+  (interactive "P")
+  (if x
+      (org-babel-map-src-blocks nil (org-babel-remove-result))
+    (org-babel-remove-result)))
 
 (defun org-babel-result-end ()
   "Return the point at the end of the current set of results."
@@ -2284,18 +2297,27 @@ file's directory then expand relative links."
 	      result)
 	    (if description (concat "[" description "]") ""))))
 
-(defvar org-babel-capitalize-examplize-region-markers nil
+(defvar org-babel-capitalize-example-region-markers nil
   "Make true to capitalize begin/end example markers inserted by code blocks.")
 
-(defun org-babel-examplize-region (beg end &optional results-switches)
+(define-obsolete-function-alias
+  'org-babel-examplize-region
+  'org-babel-examplify-region "24.5")
+
+(defun org-babel-examplify-region (beg end &optional results-switches)
   "Comment out region using the inline '==' or ': ' org example quote."
   (interactive "*r")
   (let ((chars-between (lambda (b e)
-			 (not (string-match "^[\\s]*$" (buffer-substring b e)))))
-	(maybe-cap (lambda (str) (if org-babel-capitalize-examplize-region-markers
-				     (upcase str) str))))
-    (if (or (funcall chars-between (save-excursion (goto-char beg) (point-at-bol)) beg)
-	    (funcall chars-between end (save-excursion (goto-char end) (point-at-eol))))
+			 (not (string-match "^[\\s]*$"
+					    (buffer-substring b e)))))
+	(maybe-cap (lambda (str) (if org-babel-capitalize-example-region-markers
+				(upcase str) str)))
+	(beg-bol (save-excursion (goto-char beg) (point-at-bol)))
+	(end-bol (save-excursion (goto-char end) (point-at-bol)))
+	(end-eol (save-excursion (goto-char end) (point-at-eol))))
+    (if (and (not (= end end-bol))
+	     (or (funcall chars-between beg-bol beg)
+		 (funcall chars-between end end-eol)))
 	(save-excursion
 	  (goto-char beg)
 	  (insert (format org-babel-inline-result-wrap
@@ -2719,9 +2741,9 @@ If the table is trivial, then return it as a scalar."
                       cell) t))
 
 (defun org-babel-chomp (string &optional regexp)
-  "Strip trailing spaces and carriage returns from STRING.
-Default regexp used is \"[ \f\t\n\r\v]\" but can be
-overwritten by specifying a regexp as a second argument."
+  "Strip a trailing space or carriage return from STRING.
+The default regexp used is \"[ \\f\\t\\n\\r\\v]\" but another one
+can be specified as the REGEXP argument."
   (let ((regexp (or regexp "[ \f\t\n\r\v]")))
     (while (and (> (length string) 0)
                 (string-match regexp (substring string -1)))
@@ -2729,12 +2751,12 @@ overwritten by specifying a regexp as a second argument."
     string))
 
 (defun org-babel-trim (string &optional regexp)
-  "Strip leading and trailing spaces and carriage returns from STRING.
-Like `org-babel-chomp' only it runs on both the front and back
-of the string."
-  (org-babel-chomp (org-reverse-string
-                    (org-babel-chomp (org-reverse-string string) regexp))
-                   regexp))
+  "Strip a leading and trailing space or carriage return from STRING.
+Like `org-babel-chomp', but run on both the first and last
+character of the string."
+  (org-babel-chomp
+   (org-reverse-string
+    (org-babel-chomp (org-reverse-string string) regexp)) regexp))
 
 (defun org-babel-tramp-handle-call-process-region
   (start end program &optional delete buffer display &rest args)
@@ -2867,6 +2889,13 @@ For the format of SAFE-LIST, see `org-babel-safe-header-args'."
 		     ((listp (cdr entry))
 		      (member (cdr pair) (cdr entry)))
 		     (t nil)))))))
+
+
+;;; Used by backends: R, Maxima, Octave.
+(defun org-babel-graphical-output-file (params)
+  "File where a babel block should send graphical output, per PARAMS."
+  (and (member "graphics" (cdr (assq :result-params params)))
+       (cdr (assq :file params))))
 
 (provide 'ob-core)
 
